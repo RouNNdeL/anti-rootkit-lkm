@@ -1,6 +1,6 @@
 [submodule "kernel"]
 	path = kernel
-	url = ./kernel
+	url = git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git
 [submodule "buildroot"]
 	path = buildroot
-	url = ./buildroot
+	url = git://git.buildroot.net/buildroot
