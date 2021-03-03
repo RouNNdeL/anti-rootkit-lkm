@@ -20,8 +20,4 @@ echo "Building the ext4 rootfs with buildroot"
 cd ../buildroot
 make
 
-echo "Building the kernel"
-cd ../kernel
-make -j $nproc
-
 echo "Done!"
