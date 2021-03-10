@@ -2,6 +2,7 @@
 #include "linux/kern_levels.h"
 #include "linux/printk.h"
 #include "linux/string.h"
+#include "linux/types.h"
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -60,27 +61,41 @@ void *get_64bit_system_call_handler(void)
 
 #define ENTRY_DO_CALL_OFFSET 0x77
 
-void *find_do_syscall_64(void) {
-    void *entry_syscall_addr;
-    void *do_syscall_addr;
-    int do_syscall_offset;
+void **find_syscall_table(void) {
+    uint8_t *entry_syscall;
+    uint8_t *do_syscall;
+    void **syscall_table = NULL;
+    uint8_t *addr;
+    int32_t offset;
 
-    entry_syscall_addr = get_64bit_system_call_handler();
+    entry_syscall = get_64bit_system_call_handler();
 
     // First byte of call is the opcode, following 4 bytes are the signed offset
-    do_syscall_offset = *((int *) (entry_syscall_addr + ENTRY_DO_CALL_OFFSET + 1));
+    offset = *((int *) (entry_syscall + ENTRY_DO_CALL_OFFSET + 1));
 
     // The call offset should include the 5 instruction bytes 
-    do_syscall_addr = entry_syscall_addr + do_syscall_offset + ENTRY_DO_CALL_OFFSET + 5;
-    printk(KERN_INFO "sym.do_syscall_64 is @ %px", do_syscall_addr);
+    do_syscall = entry_syscall + offset + ENTRY_DO_CALL_OFFSET + 5;
+    printk(KERN_DEBUG "sym.do_syscall_64 is @ %px", do_syscall);
 
-    return do_syscall_addr;
+    for(addr = do_syscall; addr < do_syscall + 0xff; ++addr) {
+        if(addr[0] == 0x48 && addr[1] == 0x8b && addr[2] == 0x04 && addr[3] == 0xc5) {
+            offset = *((int *) (addr + 4));
+            printk(KERN_INFO "offset : %d", offset);
+            syscall_table = (void **) (offset < 0 ? 0xffffffff00000000 | offset : offset);
+            break;
+        }
+    }
+
+    return syscall_table;
 }
 
 static int __init anti_rootkit_init(void) {
+    void **syscall_table;
+
     printk(KERN_INFO "Loading anti-rootkit module");
 
-    find_do_syscall_64();
+    syscall_table = find_syscall_table();
+    printk(KERN_INFO "syscall_table is @ %px", syscall_table);
     
     printk(KERN_INFO "Done");
 
