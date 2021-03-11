@@ -89,7 +89,7 @@ static void **find_syscall_table(void)
     return syscall_table;
 }
 
-void copy_syscall_table(void)
+static void copy_syscall_table(void)
 {
     memcpy(syscall_table_cpy, syscall_table, sizeof(syscall_table_cpy));
 }
@@ -112,16 +112,14 @@ static struct syscall_overwrite *syscall_overwrites(void)
     struct syscall_overwrite *head = kmalloc(sizeof(*head), GFP_KERNEL);
     INIT_LIST_HEAD(&head->list);
 
-    if (head == NULL) {
+    if (head == NULL)
         return NULL;
-    }
 
     for (nr = 0; nr < NR_syscalls; ++nr) {
         if (syscall_table_cpy[nr] != syscall_table[nr]) {
             struct syscall_overwrite *ov = kmalloc(sizeof(*ov), GFP_KERNEL);
-            if (ov == NULL) {
+            if (ov == NULL)
                 return NULL;
-            }
 
             ov->nr = nr;
             ov->original_addr = syscall_table_cpy[nr];
@@ -135,7 +133,8 @@ static struct syscall_overwrite *syscall_overwrites(void)
 
 static void free_syscall_overwrites(struct syscall_overwrite *head)
 {
-    struct list_head *cur, *tmp;
+    struct list_head *cur;
+    struct list_head *tmp;
     struct syscall_overwrite *ov;
 
     list_for_each_safe (cur, tmp, &head->list) {
@@ -170,9 +169,8 @@ static int __init anti_rootkit_init(void)
 
     syscall_table = find_syscall_table();
 
-    if (syscall_table == NULL) {
+    if (syscall_table == NULL)
         return 1;
-    }
 
     printk(KERN_INFO "syscall_table is @ %px", syscall_table);
 
@@ -184,18 +182,16 @@ static int __init anti_rootkit_init(void)
     enable_wp();
 
     head = syscall_overwrites();
-    if (head == NULL) {
+    if (head == NULL)
         return 1;
-    }
 
     print_syscall_overwrites(head);
     recover_syscall_table(head);
     free_syscall_overwrites(head);
 
     head = syscall_overwrites();
-    if (head == NULL) {
+    if (head == NULL)
         return 1;
-    }
 
     print_syscall_overwrites(head);
     free_syscall_overwrites(head);
