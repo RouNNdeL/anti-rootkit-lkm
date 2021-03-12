@@ -1,10 +1,10 @@
-#include "linux/gfp.h"
-#include "linux/kern_levels.h"
-#include "linux/list.h"
-#include "linux/mm.h"
-#include "linux/printk.h"
-#include "linux/string.h"
-#include "linux/types.h"
+#include <linux/gfp.h>
+#include <linux/kern_levels.h>
+#include <linux/list.h>
+#include <linux/mm.h>
+#include <linux/printk.h>
+#include <linux/string.h>
+#include <linux/types.h>
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -33,7 +33,9 @@ struct syscall_overwrite {
 
 static void *syscall_table_cpy[NR_syscalls];
 static void **syscall_table;
+static void *syscall_handler;
 
+// Newwer kernel versions prevent clearing the WP bit
 static inline void _write_cr0(uint64_t val)
 {
     asm volatile("mov %0,%%cr0" : "+r"(val) : : "memory");
@@ -49,11 +51,16 @@ static inline void enable_wp(void)
     _write_cr0(read_cr0() | 0x10000);
 }
 
-static inline void *get_64bit_system_call_handler(void)
+static inline void *get_syscall_64_handler(void)
 {
     uint64_t system_call_entry;
     rdmsrl(MSR_LSTAR, system_call_entry);
     return (void *)system_call_entry;
+}
+
+static inline void set_syscall_64_handler(void *val)
+{
+    wrmsrl(MSR_LSTAR, (unsigned long)val);
 }
 
 #define ENTRY_DO_CALL_OFFSET 0x77
@@ -66,7 +73,7 @@ static void **find_syscall_table(void)
     void **syscall_table = NULL;
     int offset;
 
-    entry_syscall = get_64bit_system_call_handler();
+    entry_syscall = get_syscall_64_handler();
 
     // First byte of call is the opcode, following 4 bytes are the signed offset
     offset = *((int *)(entry_syscall + ENTRY_DO_CALL_OFFSET + 1));
@@ -80,13 +87,30 @@ static void **find_syscall_table(void)
             addr[3] == 0xc5) {
             offset = *((int *)(addr + 4));
             // Sign extend
-            syscall_table = (void **)(offset < 0 ? 0xffffffff00000000 | offset :
-                                                   offset);
+            syscall_table = (void **)
+                (offset < 0 ? 0xffffffff00000000 | offset : offset);
             break;
         }
     }
 
     return syscall_table;
+}
+
+// Kernel consistency check #1
+static inline bool check_wp()
+{
+    return (read_cr0() & 0x10000) > 0;
+}
+
+// Kernel consistency check #2
+static inline bool check_syscall_entry()
+{
+    return get_syscall_64_handler() == syscall_handler;
+}
+
+static inline void recover_syscall_entry()
+{
+    set_syscall_64_handler(syscall_handler);
 }
 
 static void copy_syscall_table(void)
@@ -106,7 +130,8 @@ static void recover_syscall_table(struct syscall_overwrite *head)
     enable_wp();
 }
 
-static struct syscall_overwrite *syscall_overwrites(void)
+// Kernel consistency check #3
+static struct syscall_overwrite *check_syscall_table(void)
 {
     unsigned int nr;
     struct syscall_overwrite *head = kmalloc(sizeof(*head), GFP_KERNEL);
@@ -168,12 +193,10 @@ static int __init anti_rootkit_init(void)
     printk(KERN_INFO "Loading anti-rootkit module");
 
     syscall_table = find_syscall_table();
-
     if (syscall_table == NULL)
         return 1;
 
     printk(KERN_INFO "syscall_table is @ %px", syscall_table);
-
     copy_syscall_table();
 
     disable_wp();
@@ -181,7 +204,7 @@ static int __init anti_rootkit_init(void)
     syscall_table[323] = (void *)0x12345678;
     enable_wp();
 
-    head = syscall_overwrites();
+    head = check_syscall_table();
     if (head == NULL)
         return 1;
 
@@ -189,7 +212,7 @@ static int __init anti_rootkit_init(void)
     recover_syscall_table(head);
     free_syscall_overwrites(head);
 
-    head = syscall_overwrites();
+    head = check_syscall_table();
     if (head == NULL)
         return 1;
 
