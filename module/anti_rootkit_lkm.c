@@ -1,3 +1,4 @@
+#include "linux/logic_pio.h"
 #include <linux/gfp.h>
 #include <linux/kern_levels.h>
 #include <linux/list.h>
@@ -18,6 +19,7 @@
 #include <asm/page_types.h>
 #include <asm/msr.h>
 #include <asm/msr-index.h>
+#include "config.h"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Krzysztof Zdulski");
@@ -87,8 +89,8 @@ static void **find_syscall_table(void)
             addr[3] == 0xc5) {
             offset = *((int *)(addr + 4));
             // Sign extend
-            syscall_table = (void **)
-                (offset < 0 ? 0xffffffff00000000 | offset : offset);
+            syscall_table = (void **)(offset < 0 ? 0xffffffff00000000 | offset :
+                                                   offset);
             break;
         }
     }
@@ -97,18 +99,18 @@ static void **find_syscall_table(void)
 }
 
 // Kernel consistency check #1
-static inline bool check_wp()
+static inline bool wp_set(void)
 {
     return (read_cr0() & 0x10000) > 0;
 }
 
 // Kernel consistency check #2
-static inline bool check_syscall_entry()
+static inline bool syscall_handler_changed(void)
 {
-    return get_syscall_64_handler() == syscall_handler;
+    return get_syscall_64_handler() != syscall_handler;
 }
 
-static inline void recover_syscall_entry()
+static inline void recover_syscall_handler(void)
 {
     set_syscall_64_handler(syscall_handler);
 }
@@ -122,7 +124,7 @@ static void recover_syscall_table(struct syscall_overwrite *head)
 {
     struct syscall_overwrite *ov;
 
-    printk(KERN_INFO "Recovering syscall table");
+    log_info("Recovering syscall table");
     disable_wp();
     list_for_each_entry (ov, &head->list, list) {
         syscall_table[ov->nr] = ov->original_addr;
@@ -131,7 +133,7 @@ static void recover_syscall_table(struct syscall_overwrite *head)
 }
 
 // Kernel consistency check #3
-static struct syscall_overwrite *check_syscall_table(void)
+static struct syscall_overwrite *find_syscall_overrides(void)
 {
     unsigned int nr;
     struct syscall_overwrite *head = kmalloc(sizeof(*head), GFP_KERNEL);
@@ -176,57 +178,103 @@ static void print_syscall_overwrites(struct syscall_overwrite *head)
     struct syscall_overwrite *ov;
 
     if (list_empty(&head->list)) {
-        printk(KERN_INFO "No overwrites detected");
+        log_info("No overwrites detected");
         return;
     }
 
     list_for_each_entry (ov, &head->list, list) {
-        printk(KERN_WARNING "syscall %d changed, used to be %px, now is %px",
-               ov->nr, ov->original_addr, ov->overwritten_addr);
+        log_warn("syscall %d changed, used to be %px, now is %px", ov->nr,
+                 ov->original_addr, ov->overwritten_addr);
     }
+}
+
+static inline void check_syscall_table(void)
+{
+    struct syscall_overwrite *head;
+
+    head = find_syscall_overrides();
+    if (head != NULL) {
+        print_syscall_overwrites(head);
+#if RECOVER_SYSCALL_TABLE
+        recover_syscall_table(head);
+#endif /* RECOVER_SYSCALL_TABLE */
+        free_syscall_overwrites(head);
+    }
+}
+
+static inline void check_wp(void)
+{
+    if (!wp_set()) {
+        log_warn("cr0 WP bit cleared");
+#if RECOVER_WP
+        log_info("Recovering cr0 WP bit");
+        enable_wp();
+#endif /* RECOVER_WP */
+    }
+}
+
+static inline void check_syscall_handler(void)
+{
+    if (syscall_handler_changed()) {
+        log_warn("syscall entry address changed");
+#if RECOVER_MSR_LSTAR
+        log_info("recovering syscall entry address");
+        recover_syscall_handler();
+#endif /* RECOVER_MSR_LSTAR */
+    }
+}
+
+static void check_all(void)
+{
+#if DETECT_WP
+    check_wp();
+#endif /* DETECT_WP */
+
+#if DETECT_SYSCALL_TABLE
+    check_syscall_table();
+#endif /* DETECT_SYSCALL_TABLE */
+
+#if DETECT_MSR_LSTAR
+    check_syscall_handler();
+#endif /* DETECT_MSR_LSTAR */
+}
+
+static bool save_legit(void)
+{
+    syscall_table = find_syscall_table();
+    if (syscall_table == NULL)
+        return false;
+
+    log_info("syscall_table is @ %px", syscall_table);
+    copy_syscall_table();
+
+    syscall_handler = get_syscall_64_handler();
+
+    return false;
 }
 
 static int __init anti_rootkit_init(void)
 {
-    struct syscall_overwrite *head;
+    log_info("Loading anti-rootkit module");
 
-    printk(KERN_INFO "Loading anti-rootkit module");
-
-    syscall_table = find_syscall_table();
-    if (syscall_table == NULL)
-        return 1;
-
-    printk(KERN_INFO "syscall_table is @ %px", syscall_table);
-    copy_syscall_table();
+    save_legit();
 
     disable_wp();
     syscall_table[300] = (void *)0xdeafbeef;
     syscall_table[323] = (void *)0x12345678;
-    enable_wp();
 
-    head = check_syscall_table();
-    if (head == NULL)
-        return 1;
+    set_syscall_64_handler((void *)0x87654321);
 
-    print_syscall_overwrites(head);
-    recover_syscall_table(head);
-    free_syscall_overwrites(head);
+    check_all();
 
-    head = check_syscall_table();
-    if (head == NULL)
-        return 1;
-
-    print_syscall_overwrites(head);
-    free_syscall_overwrites(head);
-
-    printk(KERN_INFO "Done");
+    log_info("Done");
 
     return 0;
 }
 
 static void __exit anti_rootkit_exit(void)
 {
-    printk(KERN_INFO "Goodbye, World!\n");
+    log_info("Goodbye, World!\n");
 }
 
 module_init(anti_rootkit_init);
