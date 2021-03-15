@@ -1,5 +1,11 @@
+#include "linux/rculist.h"
+#define pr_fmt(fmt) "antirootkit: " fmt
+
+#include "asm/pgtable_types.h"
 #include "linux/logic_pio.h"
+#include "linux/vmalloc.h"
 #include <linux/gfp.h>
+#include <linux/ftrace.h>
 #include <linux/kern_levels.h>
 #include <linux/list.h>
 #include <linux/mm.h>
@@ -12,6 +18,9 @@
 #include <linux/fs.h>
 #include <linux/syscalls.h>
 #include <linux/kallsyms.h>
+#include <linux/version.h>
+#include <linux/kprobes.h>
+#include <asm/errno.h>
 #include <asm/msr.h>
 #include <asm/io.h>
 #include <asm/segment.h>
@@ -26,6 +35,10 @@ MODULE_AUTHOR("Krzysztof Zdulski");
 MODULE_DESCRIPTION("Simple anti-rookit module for a security course.");
 MODULE_VERSION("0.0.1");
 
+static void *syscall_table_cpy[NR_syscalls];
+static void **syscall_table;
+static void *syscall_handler;
+
 struct syscall_overwrite {
     unsigned int nr;
     void *original_addr;
@@ -33,11 +46,81 @@ struct syscall_overwrite {
     struct list_head list;
 };
 
-static void *syscall_table_cpy[NR_syscalls];
-static void **syscall_table;
-static void *syscall_handler;
+struct wrapped_mod {
+    struct module *mod;
+    struct list_head list;
+};
 
-// Newwer kernel versions prevent clearing the WP bit
+LIST_HEAD(mod_list);
+struct list_head *real_module_list;
+
+/*
+ * ftrace hooking from https://github.com/ilammy/ftrace-hook
+ */
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 7, 0)
+static unsigned long lookup_name(const char *name)
+{
+    struct kprobe kp = { .symbol_name = name };
+    unsigned long retval;
+
+    if (register_kprobe(&kp) < 0)
+        return 0;
+    retval = (unsigned long)kp.addr;
+    unregister_kprobe(&kp);
+    return retval;
+}
+#else
+static unsigned long lookup_name(const char *name)
+{
+    return kallsyms_lookup_name(name);
+}
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 11, 0)
+#define FTRACE_OPS_FL_RECURSION FTRACE_OPS_FL_RECURSION_SAFE
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 11, 0)
+struct ftrace_regs {
+    struct pt_regs regs;
+};
+#endif
+
+/*
+ * There are two ways of preventing vicious recursive loops when hooking:
+ * - detect recusion using function return address (USE_FENTRY_OFFSET = 0)
+ * - avoid recusion by jumping over the ftrace call (USE_FENTRY_OFFSET = 1)
+ */
+#define USE_FENTRY_OFFSET 0
+
+/**
+ * struct ftrace_hook - describes a single hook to install
+ *
+ * @name:     name of the function to hook
+ *
+ * @function: pointer to the function to execute instead
+ *
+ * @original: pointer to the location where to save a pointer
+ *            to the original function
+ *
+ * @address:  kernel address of the function entry
+ *
+ * @ops:      ftrace_ops state for this function hook
+ *
+ * The user should fill in only &name, &hook, &orig fields.
+ * Other fields are considered implementation details.
+ */
+struct ftrace_hook {
+    const char *name;
+    void *function;
+    void *original;
+
+    unsigned long address;
+    struct ftrace_ops ops;
+};
+
+// Newer kernel versions prevent clearing the WP bit
 static inline void _write_cr0(uint64_t val)
 {
     asm volatile("mov %0,%%cr0" : "+r"(val) : : "memory");
@@ -124,7 +207,7 @@ static void recover_syscall_table(struct syscall_overwrite *head)
 {
     struct syscall_overwrite *ov;
 
-    log_info("Recovering syscall table");
+    pr_info("Recovering syscall table");
     disable_wp();
     list_for_each_entry (ov, &head->list, list) {
         syscall_table[ov->nr] = ov->original_addr;
@@ -178,13 +261,13 @@ static void print_syscall_overwrites(struct syscall_overwrite *head)
     struct syscall_overwrite *ov;
 
     if (list_empty(&head->list)) {
-        log_info("No overwrites detected");
+        pr_info("No overwrites detected");
         return;
     }
 
     list_for_each_entry (ov, &head->list, list) {
-        log_warn("syscall %d changed, used to be %px, now is %px", ov->nr,
-                 ov->original_addr, ov->overwritten_addr);
+        pr_warn("syscall %d changed, used to be %px, now is %px", ov->nr,
+                ov->original_addr, ov->overwritten_addr);
     }
 }
 
@@ -205,9 +288,9 @@ static inline void check_syscall_table(void)
 static inline void check_wp(void)
 {
     if (!wp_set()) {
-        log_warn("cr0 WP bit cleared");
+        pr_warn("cr0 WP bit cleared");
 #if RECOVER_WP
-        log_info("Recovering cr0 WP bit");
+        pr_info("Recovering cr0 WP bit");
         enable_wp();
 #endif /* RECOVER_WP */
     }
@@ -216,11 +299,42 @@ static inline void check_wp(void)
 static inline void check_syscall_handler(void)
 {
     if (syscall_handler_changed()) {
-        log_warn("syscall entry address changed");
+        pr_warn("syscall entry address changed");
 #if RECOVER_MSR_LSTAR
-        log_info("recovering syscall entry address");
+        pr_info("recovering syscall entry address");
         recover_syscall_handler();
 #endif /* RECOVER_MSR_LSTAR */
+    }
+}
+
+static void check_module_on_list(struct module *mod)
+{
+    bool on_list;
+    struct module *mod_iter;
+
+    on_list = false;
+    list_for_each_entry (mod_iter, real_module_list, list) {
+        if (mod_iter == mod) {
+            on_list = true;
+        }
+    }
+
+    if (!on_list) {
+        pr_warn("module '%s' appears to have removed itself from the module list",
+                mod->name);
+#if RECOVER_MODULE_LIST
+        list_add_rcu(&mod->list, real_module_list);
+        pr_info("module '%s' has been added back to the module list",
+                mod->name);
+#endif /* RECOVER_MODULE_LIST */
+    }
+}
+
+static inline void check_all_modules_on_list(void) {
+    struct wrapped_mod *w_mod; 
+
+    list_for_each_entry(w_mod, &mod_list, list) {
+        check_module_on_list(w_mod->mod);
     }
 }
 
@@ -237,6 +351,10 @@ static void check_all(void)
 #if DETECT_MSR_LSTAR
     check_syscall_handler();
 #endif /* DETECT_MSR_LSTAR */
+
+#if DETECT_MODULE_LIST 
+    check_all_modules_on_list();
+#endif /* DETECT_MODULE_LIST */
 }
 
 static bool save_legit(void)
@@ -245,7 +363,7 @@ static bool save_legit(void)
     if (syscall_table == NULL)
         return false;
 
-    log_info("syscall_table is @ %px", syscall_table);
+    pr_info("syscall_table is @ %px", syscall_table);
     copy_syscall_table();
 
     syscall_handler = get_syscall_64_handler();
@@ -253,28 +371,245 @@ static bool save_legit(void)
     return false;
 }
 
+static int fh_resolve_hook_address(struct ftrace_hook *hook)
+{
+    hook->address = lookup_name(hook->name);
+
+    if (!hook->address) {
+        pr_debug("unresolved symbol: %s\n", hook->name);
+        return -ENOENT;
+    }
+
+#if USE_FENTRY_OFFSET
+    *((unsigned long *)hook->original) = hook->address + MCOUNT_INSN_SIZE;
+#else
+    *((unsigned long *)hook->original) = hook->address;
+#endif
+
+    return 0;
+}
+
+static void notrace fh_ftrace_thunk(unsigned long ip, unsigned long parent_ip,
+                                    struct ftrace_ops *ops,
+                                    struct ftrace_regs *regs)
+{
+    struct ftrace_hook *hook = container_of(ops, struct ftrace_hook, ops);
+
+#if USE_FENTRY_OFFSET
+    regs->regs.ip = (unsigned long)hook->function;
+#else
+    if (!within_module(parent_ip, THIS_MODULE))
+        regs->regs.ip = (unsigned long)hook->function;
+#endif
+}
+
+/**
+ * fh_install_hook() - register and enable a single hook
+ * @hook: a hook to install
+ *
+ * Returns: zero on success, negative error code otherwise.
+ */
+int fh_install_hook(struct ftrace_hook *hook)
+{
+    int err;
+
+    err = fh_resolve_hook_address(hook);
+    if (err)
+        return err;
+
+    pr_info("registering hook for %s @ %px", hook->name, hook->original);
+
+    /*
+     * We're going to modify %rip register so we'll need IPMODIFY flag
+     * and SAVE_REGS as its prerequisite. ftrace's anti-recursion guard
+     * is useless if we change %rip so disable it with RECURSION_SAFE.
+     * We'll perform our own checks for trace function reentry.
+     */
+    hook->ops.func = fh_ftrace_thunk;
+    hook->ops.flags = FTRACE_OPS_FL_SAVE_REGS | FTRACE_OPS_FL_RECURSION |
+                      FTRACE_OPS_FL_IPMODIFY;
+
+    err = ftrace_set_filter_ip(&hook->ops, hook->address, 0, 0);
+    if (err) {
+        pr_debug("ftrace_set_filter_ip() failed: %d\n", err);
+        return err;
+    }
+
+    err = register_ftrace_function(&hook->ops);
+    if (err) {
+        pr_debug("register_ftrace_function() failed: %d\n", err);
+        ftrace_set_filter_ip(&hook->ops, hook->address, 1, 0);
+        return err;
+    }
+
+    return 0;
+}
+
+/**
+ * fh_remove_hooks() - disable and unregister a single hook
+ * @hook: a hook to remove
+ */
+void fh_remove_hook(struct ftrace_hook *hook)
+{
+    int err;
+
+    err = unregister_ftrace_function(&hook->ops);
+    if (err) {
+        pr_debug("unregister_ftrace_function() failed: %d\n", err);
+    }
+
+    err = ftrace_set_filter_ip(&hook->ops, hook->address, 1, 0);
+    if (err) {
+        pr_debug("ftrace_set_filter_ip() failed: %d\n", err);
+    }
+}
+
+/**
+ * fh_install_hooks() - register and enable multiple hooks
+ * @hooks: array of hooks to install
+ * @count: number of hooks to install
+ *
+ * If some hooks fail to install then all hooks will be removed.
+ *
+ * Returns: zero on success, negative error code otherwise.
+ */
+int fh_install_hooks(struct ftrace_hook *hooks, size_t count)
+{
+    int err;
+    size_t i;
+
+    for (i = 0; i < count; i++) {
+        err = fh_install_hook(&hooks[i]);
+        if (err)
+            goto error;
+    }
+
+    return 0;
+
+error:
+    while (i != 0) {
+        fh_remove_hook(&hooks[--i]);
+    }
+
+    return err;
+}
+
+/**
+ * fh_remove_hooks() - disable and unregister multiple hooks
+ * @hooks: array of hooks to remove
+ * @count: number of hooks to remove
+ */
+void fh_remove_hooks(struct ftrace_hook *hooks, size_t count)
+{
+    size_t i;
+
+    for (i = 0; i < count; i++)
+        fh_remove_hook(&hooks[i]);
+}
+
+#ifndef CONFIG_X86_64
+#error Currently only x86_64 architecture is supported
+#endif
+
+#if defined(CONFIG_X86_64) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 17, 0))
+#define PTREGS_SYSCALL_STUBS 1
+#endif
+
+/*
+ * Tail call optimization can interfere with recursion detection based on
+ * return address on the stack. Disable it to avoid machine hangups.
+ */
+#if !USE_FENTRY_OFFSET
+#pragma GCC optimize("-fno-optimize-sibling-calls")
+#endif
+
+static void (*real_free_module)(struct module *mod);
+
+static void fh_free_module(struct module *mod)
+{
+    struct list_head *cur;
+    struct list_head *tmp;
+    struct wrapped_mod *w_mod;
+
+    list_for_each_safe (cur, tmp, &mod_list) {
+        w_mod = list_entry(cur, struct wrapped_mod, list);
+        if (w_mod->mod == mod) {
+            list_del(cur);
+            kfree(w_mod);
+            pr_info("unregistered module '%s'", mod->name);
+        }
+    }
+
+    real_free_module(mod);
+}
+
+static int (*real_do_init_module)(struct module *mod);
+
+static int fh_do_init_module(struct module *mod)
+{
+    int ret;
+    struct wrapped_mod *w_mod;
+
+    w_mod = kmalloc(sizeof(struct wrapped_mod), GFP_KERNEL);
+
+    ret = real_do_init_module(mod);
+
+    if (ret == 0) {
+        if (w_mod) {
+            w_mod->mod = mod;
+            list_add(&w_mod->list, &mod_list);
+            pr_info("registered module '%s'", mod->name);
+        } else {
+            pr_err("unable to allocate memory for wrapped_mod");
+        }
+    }
+
+#if DETECT_MODULE_LIST
+    // We are running after the module has been initialized,
+    // if it removed itself from the module list during init
+    // we can already detect it
+    check_module_on_list(mod);
+#endif /* DETECT_MODULE_LIST */
+
+    return ret;
+}
+
+#define HOOK(_name, _function, _original)                                      \
+    {                                                                          \
+        .name = _name, .function = (_function), .original = (_original),       \
+    }
+
+static struct ftrace_hook hooks[] = {
+    HOOK("do_init_module", fh_do_init_module, &real_do_init_module),
+    HOOK("free_module", fh_free_module, &real_free_module),
+};
+
 static int __init anti_rootkit_init(void)
 {
-    log_info("Loading anti-rootkit module");
+    int err;
 
+    pr_info("Loading anti-rootkit module");
+    real_module_list = THIS_MODULE->list.next;
     save_legit();
+
+    err = fh_install_hooks(hooks, ARRAY_SIZE(hooks));
+    if (err)
+        return err;
 
     disable_wp();
     syscall_table[300] = (void *)0xdeafbeef;
     syscall_table[323] = (void *)0x12345678;
-
     set_syscall_64_handler((void *)0x87654321);
 
     check_all();
-
-    log_info("Done");
+    pr_info("Done");
 
     return 0;
 }
 
 static void __exit anti_rootkit_exit(void)
 {
-    log_info("Goodbye, World!\n");
+    pr_info("Goodbye, World!\n");
 }
 
 module_init(anti_rootkit_init);
