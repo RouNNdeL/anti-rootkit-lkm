@@ -11,3 +11,7 @@ Buildroot is used to generate a rootfs for a VM to test and develop the module.
 4. Build the kernel with `make` (only needs to be done once). 
 5. Build the module and create a rootfs with `./build.sh`.
 6. Run the QEMU VM with `./run.sh`
+
+# Open source licenses
+
+- [ftrace hooking](https://github.com/ilammy/ftrace-hook) - GPLv2
