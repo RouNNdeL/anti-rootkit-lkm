@@ -35,6 +35,10 @@ MODULE_AUTHOR("Krzysztof Zdulski");
 MODULE_DESCRIPTION("Simple anti-rookit module for a security course.");
 MODULE_VERSION("0.0.1");
 
+#ifndef CONFIG_X86_64
+#error Currently only x86_64 architecture is supported
+#endif
+
 static void *syscall_table_cpy[NR_syscalls];
 static void **syscall_table;
 static void *syscall_handler;
@@ -54,9 +58,9 @@ struct wrapped_mod {
 LIST_HEAD(mod_list);
 struct list_head *real_module_list;
 
-/*
- * ftrace hooking from https://github.com/ilammy/ftrace-hook
- */
+static void (*real_free_module)(struct module *);
+
+static int (*real_do_init_module)(struct module *);
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 7, 0)
 static unsigned long lookup_name(const char *name)
@@ -86,6 +90,11 @@ struct ftrace_regs {
     struct pt_regs regs;
 };
 #endif
+
+
+/*
+ * ftrace hooking from https://github.com/ilammy/ftrace-hook
+ */
 
 /*
  * There are two ways of preventing vicious recursive loops when hooking:
@@ -271,6 +280,34 @@ static void print_syscall_overwrites(struct syscall_overwrite *head)
     }
 }
 
+static void free_mod_list(void)
+{
+    struct list_head *cur;
+    struct list_head *tmp;
+    struct wrapped_mod *w_mod;
+
+    list_for_each_safe (cur, tmp, &mod_list) {
+        w_mod = list_entry(cur, struct wrapped_mod, list);
+        list_del(cur);
+        kfree(w_mod);
+    }
+}
+
+static void unregister_module(struct module *mod) {
+    struct list_head *cur;
+    struct list_head *tmp;
+    struct wrapped_mod *w_mod;
+
+    list_for_each_safe (cur, tmp, &mod_list) {
+        w_mod = list_entry(cur, struct wrapped_mod, list);
+        if (w_mod->mod == mod) {
+            list_del(cur);
+            kfree(w_mod);
+            pr_info("unregistered module '%s'", mod->name);
+        }
+    }
+}
+
 static inline void check_syscall_table(void)
 {
     struct syscall_overwrite *head;
@@ -326,6 +363,11 @@ static void check_module_on_list(struct module *mod)
         list_add_rcu(&mod->list, real_module_list);
         pr_info("module '%s' has been added back to the module list",
                 mod->name);
+#if UNLOAD_SUSPECT_MODULE
+        pr_info("unloading suspect module forcefully");
+        unregister_module(mod);
+        real_free_module(mod);
+#endif /* UNLOAD_SUSPECT_MODULE */
 #endif /* RECOVER_MODULE_LIST */
     }
 }
@@ -507,14 +549,6 @@ void fh_remove_hooks(struct ftrace_hook *hooks, size_t count)
         fh_remove_hook(&hooks[i]);
 }
 
-#ifndef CONFIG_X86_64
-#error Currently only x86_64 architecture is supported
-#endif
-
-#if defined(CONFIG_X86_64) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 17, 0))
-#define PTREGS_SYSCALL_STUBS 1
-#endif
-
 /*
  * Tail call optimization can interfere with recursion detection based on
  * return address on the stack. Disable it to avoid machine hangups.
@@ -523,39 +557,25 @@ void fh_remove_hooks(struct ftrace_hook *hooks, size_t count)
 #pragma GCC optimize("-fno-optimize-sibling-calls")
 #endif
 
-static void (*real_free_module)(struct module *mod);
 
 static void fh_free_module(struct module *mod)
 {
-    struct list_head *cur;
-    struct list_head *tmp;
-    struct wrapped_mod *w_mod;
-
-    list_for_each_safe (cur, tmp, &mod_list) {
-        w_mod = list_entry(cur, struct wrapped_mod, list);
-        if (w_mod->mod == mod) {
-            list_del(cur);
-            kfree(w_mod);
-            pr_info("unregistered module '%s'", mod->name);
-        }
-    }
+    unregister_module(mod);
 
     real_free_module(mod);
 }
 
-static int (*real_do_init_module)(struct module *mod);
 
 static int fh_do_init_module(struct module *mod)
 {
     int ret;
     struct wrapped_mod *w_mod;
 
-    w_mod = kmalloc(sizeof(struct wrapped_mod), GFP_KERNEL);
-
     ret = real_do_init_module(mod);
 
     if (ret == 0) {
-        if (w_mod) {
+        w_mod = kmalloc(sizeof(struct wrapped_mod), GFP_KERNEL);
+        if (w_mod != NULL) {
             w_mod->mod = mod;
             list_add(&w_mod->list, &mod_list);
             pr_info("registered module '%s'", mod->name);
@@ -609,6 +629,9 @@ static int __init anti_rootkit_init(void)
 
 static void __exit anti_rootkit_exit(void)
 {
+    fh_remove_hooks(hooks, ARRAY_SIZE(hooks));
+    free_mod_list();
+
     pr_info("Goodbye, World!\n");
 }
 
