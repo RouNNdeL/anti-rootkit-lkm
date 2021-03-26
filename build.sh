@@ -10,14 +10,15 @@ cp config/buildroot.config buildroot/.config
 cp config/kernel.config kernel/.config
 
 echo "Building the kernel modules"
-cd module
+cd module/anti_rootkit
 make
 
 echo "Copying modules to the rootfs overlay"
-cp *.ko ../output/rootfs/home/bso/
+cp *.ko ../../output/rootfs/home/bso/
 
+cd ../..
 echo "Building the ext4 rootfs with buildroot"
-cd ../buildroot
+cd buildroot
 make
 
 echo "Done!"

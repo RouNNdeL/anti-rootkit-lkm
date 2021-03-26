@@ -1,8 +1,0 @@
-obj-m += anti_rootkit_lkm.o
-obj-m += sample.o
-
-all:
-	make -C /home/kris/dev/code/c/bso/kernel M=$(PWD) modules
-
-clean:
-	make -C /home/kris/dev/code/c/bso/kernel M=$(PWD) clean
