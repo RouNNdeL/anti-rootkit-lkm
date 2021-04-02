@@ -64,7 +64,7 @@ static int __init anti_rootkit_init(void)
 
     pr_info("Loading anti-rootkit module");
 
-    if(!syscall_table_init())
+    if (!syscall_table_init())
         return -1;
     syscall_handler_init();
     module_list_init();
