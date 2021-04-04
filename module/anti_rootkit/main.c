@@ -1,5 +1,10 @@
+#include <linux/sched.h>
+#include <linux/sched/prio.h>
+#include <uapi/linux/sched/types.h>
+#include <linux/kthread.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
+#include <linux/delay.h>
 #include "config.h"
 #include "utils.h"
 #include "syscall_table.h"
@@ -15,6 +20,8 @@ MODULE_VERSION("1.0.0");
 #ifndef CONFIG_X86_64
 #error Currently only x86_64 architecture is supported
 #endif
+
+static struct task_struct *interval_task;
 
 // Kernel consistency check #1
 static inline bool wp_set(void)
@@ -35,6 +42,7 @@ static inline void check_wp(void)
 
 static void check_all(void)
 {
+    pr_info("Running all checks");
 #if DETECT_WP
     check_wp();
 #endif /* DETECT_WP */
@@ -52,6 +60,21 @@ static void check_all(void)
 #endif /* DETECT_MODULE_LIST */
 }
 
+static int interval_thread_fn(void *args)
+{
+    pr_info("Starting the interval thread, will run every %ds", CHECK_INTERVAL);
+
+    while (!kthread_should_stop()) {
+        check_all();
+        // TODO: Change to something better to allow for an early exit
+        ssleep(CHECK_INTERVAL);
+    }
+
+    do_exit(0);
+
+    return 0;
+}
+
 static struct ftrace_hook hooks[] = {
     HOOK("do_init_module", fh_do_init_module, &real_do_init_module),
     HOOK("free_module", fh_free_module, &real_free_module),
@@ -60,12 +83,11 @@ static struct ftrace_hook hooks[] = {
 static int __init anti_rootkit_init(void)
 {
     int err;
-    void **syscall_table;
 
     pr_info("Loading anti-rootkit module");
 
     if (!syscall_table_init())
-        return -1;
+        return -ENXIO;
     syscall_handler_init();
     module_list_init();
 
@@ -73,25 +95,23 @@ static int __init anti_rootkit_init(void)
     if (err)
         return err;
 
-    syscall_table = find_syscall_table();
-
-    disable_wp();
-    syscall_table[300] = (void *)0xdeafbeef;
-    syscall_table[323] = (void *)0x12345678;
-    set_syscall_64_handler((void *)0x87654321);
-
     check_all();
-    pr_info("Done");
 
+    interval_task = kthread_run(interval_thread_fn, NULL, "interval_thread");
+
+    pr_info("Init done");
     return 0;
 }
 
 static void __exit anti_rootkit_exit(void)
 {
+    pr_info("Unloading anti-rootkit module\n");
+
     fh_remove_hooks(hooks, ARRAY_SIZE(hooks));
     free_mod_list();
+    kthread_stop(interval_task);
 
-    pr_info("Goodbye, World!\n");
+    pr_info("Unload done\n");
 }
 
 module_init(anti_rootkit_init);

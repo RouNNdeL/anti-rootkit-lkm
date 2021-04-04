@@ -64,37 +64,8 @@ static void unregister_module(struct module *mod)
 
 static void unload_module(struct module *mod)
 {
-    long ret;
-    const char *name;
-#ifdef PTREGS_SYSCALL_STUBS
-    struct pt_regs regs;
-#endif
-
-    /* flags = O_NONBLOCK | O_TRUNC; */
-    /* name = mod->name; */
-
-    /* pr_info("unloading '%s' using sys_delete_module", name); */
-    /* #ifdef PTREGS_SYSCALL_STUBS */
-    /* regs.di = (unsigned long)name; */
-    /* regs.si = flags; */
-    /* ret = real_delete_module(&regs); */
-    /* #else */
-    /* ret = real_delete_module(name, flags); */
-    /* #endif /1* PTREGS_SYSCALL_STUBS *1/ */
-
-#if FORCE_UNLOAD_SUSPECT_MODULE
-    if (ret) {
-        pr_info("unloading '%s' forcefully", name);
-        real_free_module(mod);
-        ret = 0;
-    }
-#endif
-
-    if (ret) {
-        pr_warn("failed to unload '%s', errno %ld", name, ret);
-    } else {
-        pr_info("successfully unloaded module");
-    }
+    pr_info("unloading '%s' forcefully", mod->name);
+    real_free_module(mod);
 }
 
 void module_list_check(struct module *mod)
