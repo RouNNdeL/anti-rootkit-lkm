@@ -15,6 +15,7 @@
 #include "syscall_handler.h"
 #include "module_list.h"
 #include "ftrace_hooks.h"
+#include "fops.h"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Krzysztof Zdulski");
@@ -40,18 +41,17 @@ static inline void check_wp(void)
     if (!wp_set()) {
         pr_warn("cr0 WP bit cleared");
 #if RECOVER_WP
-        pr_info("Recovering cr0 WP bit");
-        enable_wp();
+        pr_info("recovering cr0 WP bit");
+        wp_enable();
 #endif /* RECOVER_WP */
     }
 }
 
 static void check_all(void)
 {
-    struct time;
     last_check_time = ktime_get_real_seconds();
 
-    pr_info("Running all checks");
+    pr_info("running all checks");
 #if DETECT_WP
     check_wp();
 #endif /* DETECT_WP */
@@ -67,14 +67,18 @@ static void check_all(void)
 #if DETECT_MODULE_LIST
     module_list_check_all();
 #endif /* DETECT_MODULE_LIST */
+
+#if DETECT_FOPS
+    fops_check_all();
+#endif /* DETECT_FOPS */
 }
 
 static int interval_thread_fn(void *args)
 {
-    pr_info("Starting the interval thread, will run every %ds", CHECK_INTERVAL);
+    pr_info("starting the interval thread, will run every %ds", CHECK_INTERVAL);
 
     while (!kthread_should_stop()) {
-        pr_info("Running checks from interval");
+        pr_info("running checks from interval");
         check_all();
         // TODO: Change to something better to allow for an early exit
         ssleep(CHECK_INTERVAL);
@@ -124,10 +128,10 @@ static ssize_t sys_check_store(struct kobject *kobj,
                                size_t count)
 {
     if (buf[0] == '1') {
-        pr_info("Check requested by the user");
+        pr_info("check requested by the user");
         schedule_single_check();
     } else {
-        pr_warn("Invalid value written to sysfs trigger");
+        pr_warn("invalid value written to sysfs trigger");
     }
 
     return count;
@@ -145,7 +149,7 @@ static int __init anti_rootkit_init(void)
 {
     int err;
 
-    pr_info("Loading anti-rootkit module");
+    pr_info("loading anti-rootkit module");
 
     if (!syscall_table_init())
         return -ENXIO;
@@ -159,13 +163,19 @@ static int __init anti_rootkit_init(void)
     check_kobject = kobject_create_and_add("antirootkit", kernel_kobj);
     err = sysfs_create_file(check_kobject, &sys_check_attr.attr);
     if (err) {
-        pr_err("Unable to register sysfs check file");
+        pr_err("unable to register sysfs check file");
         return err;
     }
 
     err = sysfs_create_file(check_kobject, &sys_last_check.attr);
     if (err) {
-        pr_err("Unable to register sysfs last check file");
+        pr_err("unable to register sysfs last check file");
+        return err;
+    }
+
+    err = fops_init();
+    if(err) {
+        pr_err("unable to clone file operations");
         return err;
     }
 
@@ -174,20 +184,20 @@ static int __init anti_rootkit_init(void)
     interval_task =
             kthread_run(interval_thread_fn, NULL, "antirootkit_interval_run");
 
-    pr_info("Init done");
+    pr_info("init done");
     return 0;
 }
 
 static void __exit anti_rootkit_exit(void)
 {
-    pr_info("Unloading anti-rootkit module\n");
+    pr_info("unloading anti-rootkit module");
 
     kobject_put(check_kobject);
     fh_remove_hooks(hooks, ARRAY_SIZE(hooks));
     free_mod_list();
     kthread_stop(interval_task);
 
-    pr_info("Unload done\n");
+    pr_info("unload done");
 }
 
 module_init(anti_rootkit_init);

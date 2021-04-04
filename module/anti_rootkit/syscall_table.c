@@ -30,11 +30,11 @@ void syscall_table_recover(struct syscall_overwrite *head)
     struct syscall_overwrite *ov;
 
     pr_info("Recovering syscall table");
-    disable_wp();
+    wp_disable();
     list_for_each_entry (ov, &head->list, list) {
         syscall_table[ov->nr] = ov->original_addr;
     }
-    enable_wp();
+    wp_enable();
 }
 
 struct syscall_overwrite *find_syscall_overrides(void)

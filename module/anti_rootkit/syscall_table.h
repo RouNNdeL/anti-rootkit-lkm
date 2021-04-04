@@ -31,7 +31,12 @@ static inline void syscall_table_check(void)
     struct syscall_overwrite *head;
 
     head = find_syscall_overrides();
-    if (head != NULL) {
+    if (head == NULL) {
+        pr_err("Unable to get syscall overwrites");
+        return;
+    }
+
+    if (!list_empty(&head->list)) {
         print_syscall_overwrites(head);
 #if RECOVER_SYSCALL_TABLE
         syscall_table_recover(head);

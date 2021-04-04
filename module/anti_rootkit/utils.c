@@ -1,3 +1,4 @@
+#include "linux/printk.h"
 #include <linux/version.h>
 #include <linux/kprobes.h>
 #include <linux/kallsyms.h>
@@ -21,3 +22,18 @@ unsigned long lookup_name(const char *name)
     return kallsyms_lookup_name(name);
 }
 #endif
+
+struct file_operations *get_fop(const char *path)
+{
+    struct file *file;
+    struct file_operations *ret;
+
+    if ((file = filp_open(path, O_RDONLY, 0)) == NULL) {
+        return NULL;
+    }
+
+    ret = (struct file_operations *) file->f_op;
+    filp_close(file, 0);
+
+    return ret;
+}
