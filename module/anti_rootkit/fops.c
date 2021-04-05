@@ -1,5 +1,3 @@
-#include "asm/string_64.h"
-#include "linux/printk.h"
 #include <linux/fs.h>
 #include "config.h"
 #include "utils.h"
@@ -69,6 +67,19 @@ static void fops_print_overwrites(int overwrites,
         pr_warn("'iterate' file operations overwrite detected");
 }
 
+static void fops_check(const struct important_fops *cpy,
+                       struct file_operations *org)
+{
+    int overwrites = validate_fops(cpy, org);
+    if (!overwrites)
+        return;
+    pr_info("fops overwrites: %d", overwrites);
+    fops_print_overwrites(overwrites, cpy, org);
+#if RECOVER_FOPS
+    fops_recover(cpy, org);
+#endif /* RECOVER_FOPS */
+}
+
 int fops_init(void)
 {
     struct file_operations *fops;
@@ -88,18 +99,6 @@ int fops_init(void)
     copy_important_fops(&org_root_fops, fops);
 
     return 0;
-}
-
-void fops_check(const struct important_fops *cpy, struct file_operations *org)
-{
-    int overwrites = validate_fops(cpy, org);
-    pr_info("overwrites: %d", overwrites);
-    if (!overwrites)
-        return;
-    fops_print_overwrites(overwrites, cpy, org);
-#if RECOVER_FOPS
-    fops_recover(cpy, org);
-#endif /* RECOVER_FOPS */
 }
 
 void fops_check_all(void)

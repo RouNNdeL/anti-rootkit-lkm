@@ -1,5 +1,6 @@
 #include "ftrace_hooks.h" 
 #include "utils.h"
+#include "config.h"
 
 static int fh_resolve_hook_address(struct ftrace_hook *hook)
 {

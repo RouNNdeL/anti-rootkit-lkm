@@ -6,29 +6,23 @@
 #include <asm/msr.h>
 #include <asm/msr-index.h>
 #include "config.h"
+#include "utils.h"
 
 #define ENTRY_DO_CALL_OFFSET 0x77
 
-struct syscall_overwrite {
-    unsigned int nr;
-    void *original_addr;
-    void *overwritten_addr;
-    struct list_head list;
-};
 
-struct syscall_overwrite *find_syscall_overrides(void);
+struct table_overwrite *find_syscall_overrides(void);
 
-void print_syscall_overwrites(struct syscall_overwrite *head);
-void syscall_table_recover(struct syscall_overwrite *head);
-void free_syscall_overwrites(struct syscall_overwrite *head);
+void syscall_table_recover(const struct table_overwrite *head);
+void free_syscall_overwrites(struct table_overwrite *head);
 void copy_syscall_table(void);
-bool syscall_table_init(void);
+int syscall_table_init(void);
 
 void **find_syscall_table(void);
 
 static inline void syscall_table_check(void)
 {
-    struct syscall_overwrite *head;
+    struct table_overwrite *head;
 
     head = find_syscall_overrides();
     if (head == NULL) {
@@ -37,7 +31,7 @@ static inline void syscall_table_check(void)
     }
 
     if (!list_empty(&head->list)) {
-        print_syscall_overwrites(head);
+        print_table_overwrites("syscall table", head);
 #if RECOVER_SYSCALL_TABLE
         syscall_table_recover(head);
 #endif /* RECOVER_SYSCALL_TABLE */

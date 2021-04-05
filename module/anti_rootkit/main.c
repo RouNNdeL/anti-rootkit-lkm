@@ -16,6 +16,7 @@
 #include "module_list.h"
 #include "ftrace_hooks.h"
 #include "fops.h"
+#include "idt.h"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Krzysztof Zdulski");
@@ -30,7 +31,6 @@ static struct task_struct *interval_task;
 static struct kobject *check_kobject;
 static time64_t last_check_time;
 
-// Kernel consistency check #1
 static inline bool wp_set(void)
 {
     return (read_cr0() & 0x10000) > 0;
@@ -71,6 +71,10 @@ static void check_all(void)
 #if DETECT_FOPS
     fops_check_all();
 #endif /* DETECT_FOPS */
+
+#if DETECT_IDT
+    idt_check();
+#endif /* DETECT_IDT */
 }
 
 static int interval_thread_fn(void *args)
@@ -101,31 +105,30 @@ static void schedule_single_check(void)
     kthread_run(single_thread_fn, NULL, "antirootkit_single_run");
 }
 
-static ssize_t sys_last_check_show(struct kobject *kobj,
-                                   struct kobj_attribute *attr, char *buf)
+static ssize_t last_check_show(struct kobject *kobj,
+                               struct kobj_attribute *attr, char *buf)
 {
     return sprintf(buf, "%lld\n", last_check_time);
 }
 
-static ssize_t sys_last_check_store(struct kobject *kobj,
-                                    struct kobj_attribute *attr,
-                                    const char *buf, size_t count)
+static ssize_t last_check_store(struct kobject *kobj,
+                                struct kobj_attribute *attr, const char *buf,
+                                size_t count)
 {
     return count;
 }
 
 static const struct kobj_attribute sys_last_check =
-        __ATTR(last_check, 0440, sys_last_check_show, sys_last_check_store);
+        __ATTR(last_check, 0440, last_check_show, last_check_store);
 
-static ssize_t sys_check_show(struct kobject *kobj, struct kobj_attribute *attr,
-                              char *buf)
+static ssize_t check_show(struct kobject *kobj, struct kobj_attribute *attr,
+                          char *buf)
 {
     return sprintf(buf, "%d\n", 0);
 }
 
-static ssize_t sys_check_store(struct kobject *kobj,
-                               struct kobj_attribute *attr, const char *buf,
-                               size_t count)
+static ssize_t check_store(struct kobject *kobj, struct kobj_attribute *attr,
+                           const char *buf, size_t count)
 {
     if (buf[0] == '1') {
         pr_info("check requested by the user");
@@ -138,27 +141,51 @@ static ssize_t sys_check_store(struct kobject *kobj,
 }
 
 static const struct kobj_attribute sys_check_attr =
-        __ATTR(check, 0660, sys_check_show, sys_check_store);
+        __ATTR(check, 0660, check_show, check_store);
 
 static struct ftrace_hook hooks[] = {
     HOOK("do_init_module", fh_do_init_module, &real_do_init_module),
     HOOK("free_module", fh_free_module, &real_free_module),
 };
 
-static int __init anti_rootkit_init(void)
+static bool modules_init(void)
 {
     int err;
+    bool ret = true;
 
-    pr_info("loading anti-rootkit module");
+    err = syscall_table_init();
+    if (err) {
+        pr_err("unable to find syscall table");
+        ret = false;
+    }
 
-    if (!syscall_table_init())
-        return -ENXIO;
     syscall_handler_init();
     module_list_init();
 
     err = fh_install_hooks(hooks, ARRAY_SIZE(hooks));
-    if (err)
-        return err;
+    if (err) {
+        pr_err("uable to install hooks");
+        ret = false;
+    }
+
+    err = fops_init();
+    if (err) {
+        pr_err("unable to clone file operations");
+        ret = false;
+    }
+
+    err = idt_init();
+    if (err) {
+        pr_err("unable to find IDT");
+        ret = false;
+    }
+
+    return ret;
+}
+
+static int init_sysfs(void)
+{
+    int err;
 
     check_kobject = kobject_create_and_add("antirootkit", kernel_kobj);
     err = sysfs_create_file(check_kobject, &sys_check_attr.attr);
@@ -173,9 +200,22 @@ static int __init anti_rootkit_init(void)
         return err;
     }
 
-    err = fops_init();
-    if(err) {
-        pr_err("unable to clone file operations");
+    return 0;
+}
+
+static int __init anti_rootkit_init(void)
+{
+    int err;
+
+    pr_info("loading anti-rootkit module");
+
+    if (!modules_init()) {
+        pr_err("unable to initialize one of the enabled modules");
+        return -ENXIO;
+    }
+
+    err = init_sysfs();
+    if (err) {
         return err;
     }
 
@@ -185,6 +225,7 @@ static int __init anti_rootkit_init(void)
             kthread_run(interval_thread_fn, NULL, "antirootkit_interval_run");
 
     pr_info("init done");
+
     return 0;
 }
 

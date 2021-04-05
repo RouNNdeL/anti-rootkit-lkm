@@ -1,3 +1,6 @@
+#ifndef _ANTI_ROOTKIT_FOPS
+#define _ANTI_ROOTKIT_FOPS
+
 #include <linux/fs.h>
 
 #define FOPS_OVERWRITE_READ (1 << 0)
@@ -13,9 +16,7 @@ struct important_fops {
     uint8_t iterate[FOPS_WATCH_SIZE];
 };
 
-void fops_check(const struct important_fops *cpy,
-                struct file_operations *org);
-
 int fops_init(void);
-
 void fops_check_all(void);
+
+#endif

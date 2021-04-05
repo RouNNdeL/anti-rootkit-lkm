@@ -14,33 +14,34 @@ void copy_syscall_table(void)
     memcpy(syscall_table_cpy, syscall_table, sizeof(syscall_table_cpy));
 }
 
-bool syscall_table_init(void) {
+int syscall_table_init(void)
+{
     syscall_table = find_syscall_table();
     if (syscall_table == NULL)
-        return false;
+        return -ENXIO;
 
     pr_info("syscall_table is @ %px", syscall_table);
     copy_syscall_table();
 
-    return true;
+    return 0;
 }
 
-void syscall_table_recover(struct syscall_overwrite *head)
+void syscall_table_recover(const struct table_overwrite *head)
 {
-    struct syscall_overwrite *ov;
+    struct table_overwrite *ov;
 
-    pr_info("Recovering syscall table");
+    pr_info("recovering syscall table");
     wp_disable();
     list_for_each_entry (ov, &head->list, list) {
-        syscall_table[ov->nr] = ov->original_addr;
+        syscall_table[ov->index] = (void *)ov->original_addr;
     }
     wp_enable();
 }
 
-struct syscall_overwrite *find_syscall_overrides(void)
+struct table_overwrite *find_syscall_overrides(void)
 {
     unsigned int nr;
-    struct syscall_overwrite *head = kmalloc(sizeof(*head), GFP_KERNEL);
+    struct table_overwrite *head = kmalloc(sizeof(*head), GFP_KERNEL);
     INIT_LIST_HEAD(&head->list);
 
     if (head == NULL)
@@ -48,13 +49,13 @@ struct syscall_overwrite *find_syscall_overrides(void)
 
     for (nr = 0; nr < NR_syscalls; ++nr) {
         if (syscall_table_cpy[nr] != syscall_table[nr]) {
-            struct syscall_overwrite *ov = kmalloc(sizeof(*ov), GFP_KERNEL);
+            struct table_overwrite *ov = kmalloc(sizeof(*ov), GFP_KERNEL);
             if (ov == NULL)
                 return NULL;
 
-            ov->nr = nr;
-            ov->original_addr = syscall_table_cpy[nr];
-            ov->overwritten_addr = syscall_table[nr];
+            ov->index = nr;
+            ov->original_addr = (unsigned long)syscall_table_cpy[nr];
+            ov->overwritten_addr = (unsigned long)syscall_table[nr];
             list_add(&ov->list, &head->list);
         }
     }
@@ -91,36 +92,4 @@ void **find_syscall_table(void)
     }
 
     return syscall_table;
-}
-
-
-// Kernel consistency check #3
-void free_syscall_overwrites(struct syscall_overwrite *head)
-{
-    struct list_head *cur;
-    struct list_head *tmp;
-    struct syscall_overwrite *ov;
-
-    list_for_each_safe (cur, tmp, &head->list) {
-        ov = list_entry(cur, struct syscall_overwrite, list);
-        list_del(cur);
-        kfree(ov);
-    }
-
-    kfree(head);
-}
-
-void print_syscall_overwrites(struct syscall_overwrite *head)
-{
-    struct syscall_overwrite *ov;
-
-    if (list_empty(&head->list)) {
-        pr_info("No overwrites detected");
-        return;
-    }
-
-    list_for_each_entry (ov, &head->list, list) {
-        pr_warn("syscall %d changed, used to be %px, now is %px", ov->nr,
-                ov->original_addr, ov->overwritten_addr);
-    }
 }
