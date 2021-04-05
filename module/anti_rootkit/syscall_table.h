@@ -10,7 +10,6 @@
 
 #define ENTRY_DO_CALL_OFFSET 0x77
 
-
 struct table_overwrite *find_syscall_overrides(void);
 
 void syscall_table_recover(const struct table_overwrite *head);

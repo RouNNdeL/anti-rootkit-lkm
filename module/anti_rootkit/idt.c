@@ -1,10 +1,10 @@
-#include "asm/desc.h"
-#include "linux/printk.h"
+#include "config.h"
+
 #include <asm/desc_defs.h>
 #include <asm/segment.h>
+#include <asm/desc.h>
 #include <linux/module.h>
 #include <linux/slab.h>
-#include "config.h"
 #include "utils.h"
 #include "idt.h"
 
@@ -21,7 +21,7 @@ int idt_init(void)
 {
     struct desc_ptr idt_info;
     store_idt(&idt_info);
-    pr_info("IDT is @ %px with size %d", idt_info.size, idt_info.size);
+    pr_info("IDT is @ %px with size %d", (void *) idt_info.address, idt_info.size);
 
     if (idt_info.size != IDT_TABLE_SIZE - 1)
         return -ENXIO;

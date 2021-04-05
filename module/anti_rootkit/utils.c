@@ -1,4 +1,3 @@
-#include "linux/printk.h"
 #include <linux/version.h>
 #include <linux/kprobes.h>
 #include <linux/kallsyms.h>
@@ -65,6 +64,6 @@ void print_table_overwrites(const char *prefix, const struct table_overwrite *he
 
     list_for_each_entry (ov, &head->list, list) {
         pr_warn("%s %d changed, used to be %px, now is %px", prefix, ov->index,
-                ov->original_addr, ov->overwritten_addr);
+                (void *)ov->original_addr, (void *)ov->overwritten_addr);
     }
 }

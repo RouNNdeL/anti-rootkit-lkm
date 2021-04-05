@@ -1,6 +1,7 @@
 #ifndef _ANTI_ROOTKIT_CONFIG
 #define _ANTI_ROOTKIT_CONFIG
 
+#undef pr_fmt
 #define pr_fmt(fmt) "antirootkit: " fmt
 
 #define DETECT_SYSCALL_TABLE 1

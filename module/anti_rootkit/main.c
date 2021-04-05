@@ -1,7 +1,6 @@
 #include <linux/kobject.h>
 #include <linux/sysfs.h>
 #include <linux/types.h>
-#include <linux/sched.h>
 #include <linux/sched/prio.h>
 #include <linux/kthread.h>
 #include <linux/module.h>
@@ -9,6 +8,7 @@
 #include <linux/delay.h>
 #include <linux/time.h>
 #include <uapi/linux/sched/types.h>
+
 #include "config.h"
 #include "utils.h"
 #include "syscall_table.h"
