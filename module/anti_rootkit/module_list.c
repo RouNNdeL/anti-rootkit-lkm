@@ -11,17 +11,24 @@ asmlinkage long (*real_delete_module)(const char __user *name_user,
                                       unsigned int flags);
 #endif /* PTREGS_SYSCALL_STUBS */
 
-typedef int (*release_mod_ptr)(struct module *);
-release_mod_ptr try_release_module_ref;
+static LIST_HEAD(mod_list);
+static struct list_head *real_module_list;
+static mod_list_change callback = NULL;
 
-LIST_HEAD(mod_list);
-struct list_head *real_module_list;
+void module_list_set_callback(mod_list_change c)
+{
+    callback = c;
+}
 
 void module_list_check_all(void)
 {
+    struct list_head *cur;
+    struct list_head *tmp;
     struct wrapped_mod *w_mod;
 
-    list_for_each_entry (w_mod, &mod_list, list) {
+    // We need the safe iterator, since modules can be removed during the check
+    list_for_each_safe (cur, tmp, &mod_list) {
+        w_mod = list_entry(cur, struct wrapped_mod, list);
         module_list_check(w_mod->mod);
     }
 }
@@ -29,8 +36,6 @@ void module_list_check_all(void)
 void module_list_init(void)
 {
     real_module_list = THIS_MODULE->list.next;
-    try_release_module_ref =
-            (release_mod_ptr)lookup_name("try_release_module_ref");
 }
 
 void free_mod_list(void)
@@ -113,6 +118,7 @@ int fh_do_init_module(struct module *mod)
         w_mod = kmalloc(sizeof(struct wrapped_mod), GFP_KERNEL);
         if (w_mod != NULL) {
             w_mod->mod = mod;
+            w_mod->load_time = ktime_get_real_seconds();
             list_add(&w_mod->list, &mod_list);
             pr_info("registered module '%s'", mod->name);
         } else {
@@ -120,12 +126,8 @@ int fh_do_init_module(struct module *mod)
         }
     }
 
-#if DETECT_MODULE_LIST
-    // We are running after the module has been initialized,
-    // if it removed itself from the module list during init
-    // we can already detect it
-    module_list_check(mod);
-#endif /* DETECT_MODULE_LIST */
+    if (callback)
+        callback(mod, MOD_LIST_LOAD);
 
     return ret;
 }

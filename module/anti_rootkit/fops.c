@@ -114,7 +114,7 @@ void fops_check_all(void)
     fops_check(&org_sysfs_fops, fops);
 
     fops = get_fop("/proc");
-    pr_info("checking root file operations");
+    pr_info("checking procfs file operations");
     if (!fops) {
         pr_err("unable to get sysfs file operations");
         return;

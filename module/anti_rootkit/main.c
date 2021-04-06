@@ -105,6 +105,11 @@ static void schedule_single_check(void)
     kthread_run(single_thread_fn, NULL, "antirootkit_single_run");
 }
 
+void mod_list_callback(struct module *mod, int flags)
+{
+    schedule_single_check();
+}
+
 static ssize_t last_check_show(struct kobject *kobj,
                                struct kobj_attribute *attr, char *buf)
 {
@@ -161,6 +166,7 @@ static bool modules_init(void)
 
     syscall_handler_init();
     module_list_init();
+    module_list_set_callback(mod_list_callback);
 
     err = fh_install_hooks(hooks, ARRAY_SIZE(hooks));
     if (err) {
