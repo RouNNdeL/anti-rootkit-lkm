@@ -103,15 +103,8 @@ static ssize_t last_check_show(struct kobject *kobj,
     return sprintf(buf, "%lld\n", last_check_time);
 }
 
-// TODO: Use __ATTR_RO_MODE
 static const struct kobj_attribute sys_last_check =
-        __ATTR(last_check, 0440, last_check_show, NULL);
-
-static ssize_t check_show(struct kobject *kobj, struct kobj_attribute *attr,
-                          char *buf)
-{
-    return sprintf(buf, "%d\n", 0);
-}
+        __ATTR_RO_MODE(last_check, 0440);
 
 static ssize_t check_store(struct kobject *kobj, struct kobj_attribute *attr,
                            const char *buf, size_t count)
@@ -126,8 +119,7 @@ static ssize_t check_store(struct kobject *kobj, struct kobj_attribute *attr,
     return count;
 }
 
-static const struct kobj_attribute sys_check_attr =
-        __ATTR(check, 0220, check_show, check_store);
+static const struct kobj_attribute sys_check_attr = __ATTR_WO(check);
 
 static struct ftrace_hook hooks[] = {
     HOOK("do_init_module", fh_do_init_module, &real_do_init_module),

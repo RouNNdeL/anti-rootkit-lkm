@@ -1,12 +1,13 @@
+KERNEL ?= /lib/modules/$(shell uname -r)/build
 MOD_NAME = anti_rootkit
 SRCFILES = $(filter-out $(wildcard *.mod.c), $(wildcard *.c))
 OBJFILES = $(SRCFILES:.c=.o)
 
 obj-m += $(MOD_NAME).o
-$(MOD_NAME)-objs += main.o ftrace_hooks.o globals.o module_list.o syscall_handler.o syscall_table.o utils.o fops.o idt.o
+$(MOD_NAME)-objs += fops.o ftrace_hooks.o globals.o idt.o main.o module_list.o network.o syscall_handler.o syscall_table.o utils.o pinned_bits.o
 
 all:
-	make -C /home/kris/dev/code/c/bso/kernel M=$(PWD) modules
+	make -C $(KERNEL) M=$(PWD) modules
 
 clean:
-	make -C /home/kris/dev/code/c/bso/kernel M=$(PWD) clean
+	make -C $(KERNEL) M=$(PWD) clean
