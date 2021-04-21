@@ -17,6 +17,8 @@
 #include "ftrace_hooks.h"
 #include "fops.h"
 #include "idt.h"
+#include "pinned_bits.h"
+#include "network.h"
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Krzysztof Zdulski");
@@ -31,30 +33,14 @@ static struct task_struct *interval_task;
 static struct kobject *check_kobject;
 static time64_t last_check_time;
 
-static inline bool wp_set(void)
-{
-    return (read_cr0() & 0x10000) > 0;
-}
-
-static inline void check_wp(void)
-{
-    if (!wp_set()) {
-        pr_warn("cr0 WP bit cleared");
-#if RECOVER_WP
-        pr_info("recovering cr0 WP bit");
-        wp_enable();
-#endif /* RECOVER_WP */
-    }
-}
-
 static void check_all(void)
 {
     last_check_time = ktime_get_real_seconds();
 
     pr_info("running all checks");
-#if DETECT_WP
-    check_wp();
-#endif /* DETECT_WP */
+#if DETECT_PINNED_BITS
+    pinned_bits_check();
+#endif /* DETECT_PINNED_BITS */
 
 #if DETECT_SYSCALL_TABLE
     syscall_table_check();
@@ -75,6 +61,10 @@ static void check_all(void)
 #if DETECT_IDT
     idt_check();
 #endif /* DETECT_IDT */
+
+#if DETECT_NETWORK
+    network_check();
+#endif /* DETECT_NETWORK */
 }
 
 static int interval_thread_fn(void *args)
@@ -88,15 +78,12 @@ static int interval_thread_fn(void *args)
         ssleep(CHECK_INTERVAL);
     }
 
-    do_exit(0);
-
     return 0;
 }
 
 static int single_thread_fn(void *args)
 {
     check_all();
-    do_exit(0);
     return 0;
 }
 
@@ -116,15 +103,9 @@ static ssize_t last_check_show(struct kobject *kobj,
     return sprintf(buf, "%lld\n", last_check_time);
 }
 
-static ssize_t last_check_store(struct kobject *kobj,
-                                struct kobj_attribute *attr, const char *buf,
-                                size_t count)
-{
-    return count;
-}
-
+// TODO: Use __ATTR_RO_MODE
 static const struct kobj_attribute sys_last_check =
-        __ATTR(last_check, 0440, last_check_show, last_check_store);
+        __ATTR(last_check, 0440, last_check_show, NULL);
 
 static ssize_t check_show(struct kobject *kobj, struct kobj_attribute *attr,
                           char *buf)
@@ -146,14 +127,14 @@ static ssize_t check_store(struct kobject *kobj, struct kobj_attribute *attr,
 }
 
 static const struct kobj_attribute sys_check_attr =
-        __ATTR(check, 0660, check_show, check_store);
+        __ATTR(check, 0220, check_show, check_store);
 
 static struct ftrace_hook hooks[] = {
     HOOK("do_init_module", fh_do_init_module, &real_do_init_module),
     HOOK("free_module", fh_free_module, &real_free_module),
 };
 
-static bool modules_init(void)
+static bool checks_init(void)
 {
     int err;
     bool ret = true;
@@ -186,6 +167,8 @@ static bool modules_init(void)
         ret = false;
     }
 
+    network_init();
+
     return ret;
 }
 
@@ -215,7 +198,7 @@ static int __init anti_rootkit_init(void)
 
     pr_info("loading anti-rootkit module");
 
-    if (!modules_init()) {
+    if (!checks_init()) {
         pr_err("unable to initialize one of the enabled modules");
         return -ENXIO;
     }

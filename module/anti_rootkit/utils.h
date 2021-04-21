@@ -11,6 +11,11 @@ static inline void _write_cr0(unsigned long val)
     asm volatile("mov %0,%%cr0" : "+r"(val) : : "memory");
 }
 
+static inline void _write_cr4(unsigned long val)
+{
+    asm volatile("mov %0,%%cr4" : "+r"(val) : : "memory");
+}
+
 static inline void wp_disable(void)
 {
     _write_cr0(read_cr0() & (~0x10000));
