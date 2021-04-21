@@ -1,9 +1,9 @@
 #ifndef _ANTI_ROOTKIT_UTILS
 #define _ANTI_ROOTKIT_UTILS
 
-#include <asm/special_insns.h>
 #include <linux/list.h>
 #include <linux/slab.h>
+#include <asm/special_insns.h>
 
 // Newer kernel versions prevent clearing the WP bit
 static inline void _write_cr0(unsigned long val)
@@ -32,7 +32,36 @@ struct table_overwrite {
     struct list_head list;
 };
 
-void free_syscall_overwrites(struct table_overwrite *head);
-void print_table_overwrites(const char *prefix, const struct table_overwrite *head);
+void free_table_overwrites(struct table_overwrite *head);
+void print_table_overwrites(const char *prefix,
+                            const struct table_overwrite *head);
+
+#define FUN_PROTECT_SIZE 12
+struct fun_protector {
+    uint8_t head[FUN_PROTECT_SIZE];
+    void *addr;
+};
+
+static inline int fprot_safe_cpy(const struct fun_protector *fprot, void *addr)
+{
+    if (addr)
+        memcpy((void *)fprot->head, addr, FUN_PROTECT_SIZE);
+
+    return 0;
+}
+
+static inline int fprot_validate(const struct fun_protector *fprot)
+{
+    if (fprot->addr)
+        return memcmp(fprot->addr, fprot->head, FUN_PROTECT_SIZE);
+
+    return 0;
+}
+
+static inline void fprot_recover(const struct fun_protector *fprot)
+{
+    if (fprot->addr)
+        memcpy(fprot->addr, fprot->head, FUN_PROTECT_SIZE);
+}
 
 #endif

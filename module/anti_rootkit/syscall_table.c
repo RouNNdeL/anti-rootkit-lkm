@@ -50,8 +50,10 @@ struct table_overwrite *find_syscall_overrides(void)
     for (nr = 0; nr < NR_syscalls; ++nr) {
         if (syscall_table_cpy[nr] != syscall_table[nr]) {
             struct table_overwrite *ov = kmalloc(sizeof(*ov), GFP_KERNEL);
-            if (ov == NULL)
+            if (ov == NULL) {
+                free_table_overwrites(head);
                 return NULL;
+            }
 
             ov->index = nr;
             ov->original_addr = (unsigned long)syscall_table_cpy[nr];

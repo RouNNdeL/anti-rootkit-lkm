@@ -34,7 +34,7 @@ static inline void syscall_table_check(void)
 #if RECOVER_SYSCALL_TABLE
         syscall_table_recover(head);
 #endif /* RECOVER_SYSCALL_TABLE */
-        free_syscall_overwrites(head);
+        free_table_overwrites(head);
     }
 }
 

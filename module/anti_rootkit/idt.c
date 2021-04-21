@@ -21,7 +21,8 @@ int idt_init(void)
 {
     struct desc_ptr idt_info;
     store_idt(&idt_info);
-    pr_info("IDT is @ %px with size %d", (void *) idt_info.address, idt_info.size);
+    pr_info("IDT is @ %px with size %d", (void *)idt_info.address,
+            idt_info.size);
 
     if (idt_info.size != IDT_TABLE_SIZE - 1)
         return -ENXIO;
@@ -49,8 +50,10 @@ static struct table_overwrite *find_idt_overwrites(void)
     for (i = 0; i < IDT_ENTRIES; ++i) {
         if (cmp_gate_desc(&idt_table[i], &idt_copy[i]) != 0) {
             struct table_overwrite *ov = kmalloc(sizeof(*ov), GFP_KERNEL);
-            if (ov == NULL)
+            if (ov == NULL) {
+                free_table_overwrites(head);
                 return NULL;
+            }
 
             ov->index = i;
             ov->original_addr = GATE_DESC_TO_LONG(&idt_copy[i]);
@@ -83,5 +86,5 @@ void idt_check(void)
     head = find_idt_overwrites();
     print_table_overwrites("idt", head);
     /* idt_recover(head); */
-    free_syscall_overwrites(head);
+    free_table_overwrites(head);
 }

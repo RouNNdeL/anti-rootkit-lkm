@@ -38,7 +38,7 @@ struct file_operations *get_fop(const char *path)
     return ret;
 }
 
-void free_syscall_overwrites(struct table_overwrite *head)
+void free_table_overwrites(struct table_overwrite *head)
 {
     struct list_head *cur;
     struct list_head *tmp;
