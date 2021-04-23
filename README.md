@@ -10,7 +10,8 @@ It is only compatible with the `x86_64` architecture, but some non architecture 
 3. [Available checks](#available-checks)
     1. [Pinned CR bits](#pinned-cr-bits)
     2. [MSR LSTAR](#msr-lstar)
-    3. [Syscall table](#syscall-table)
+    3. [Syscall Table](#syscall-table)
+    4. [Interrupt Descriptor Table](#interrupt-descriptor-table)
 4. [Development](#development)
 
 </details>
@@ -152,12 +153,34 @@ The syscall table is also not available through kallsyms.
 
 We have to get a bit clever to get access to the table. Let's follow what the CPU does to call a specific syscall handler.
 
-We already know, when the `syscall` instruction gets executed, we jump to the `entry_SYSCALL_64`.
-The function is actually written in assembly (in the `/arch/x86/entry/entry_64.S` file).
-It  will first push the registers onto the stack (the `pt_regs` structure) and then call `do_syscall_64`
+We already know, when the `syscall` instruction gets executed, we jump to the `entry_SYSCALL_64`,
+and the address of the next instruction is stored in the `rcx` register.
+The procedure is actually written in assembly (in the `/arch/x86/entry/entry_64.S` file).
+
+```asm
+entry_SYSCALL_64:
+  /* Prepare the stack */
+  ...
+  /* Construct struct pt_regs on the stack */
+  ...
+  push  rcx          /* pt_regs->ip (CPU stored it here on syscall) */
+  push  rax          /* pt_regs->orig_ax */
+
+  /* pushes and clears (using xor %r, %r) all registers except for rax, since it holds the syscall number */ 
+  PUSH_AND_CLEAR_REGS rax=$-ENOSYS
+
+  /* IRQs are off. */
+  mov  rdi, rax            /* unsigned long nr */
+  mov  rsi, rsp            /* struct pt_regs *regs */
+  call  do_syscall_64      /* returns with IRQs disabled */
+  /* now rax has the return value of the handler */
+  ...
+```
+
+It  will first push the registers onto the stack (the `struct pt_regs` structure) and then call `do_syscall_64`
 with the first argument `rdi` being the syscall number (also stored in `rax`),
-and the second argument being the `pt_regs` structure holding the other registers (`mov rsi, rsp`;
-remember that `pt_regs` is now on the stack).
+and the second argument being the `struct pt_regs` structure holding the other registers (`mov rsi, rsp`;
+remember that `struct pt_regs` is now on the stack).
 
 The `do_syscall_64` function will check if the syscall number is valid and then call the appropriate syscall,
 like this:
@@ -195,9 +218,9 @@ call sym.__x86_indirect_thunk_rax ; retpoline - basically jmp rax
 
 We can now attempt to locate this part by pattern matching,
 looking for the `mov` instruction - specifically `MOV r64,r/m64`.
-Additionally the value of the ModR/M Byte has to be equal tp `04`, meaning `mov rax, ?`,
+Additionally the value of the ModR/M Byte has to be equal to `04`, meaning `mov rax, ?`,
 the SIB Byte follows the ModR/M Byte to describe the source operand.
-Moreover SIB Byte has to be equal to `c5` since we are mutlipling `rax` by 8
+Moreover SIB Byte has to be equal to `c5` since we are multiplying `rax` by 8
 (`sizeof(void *)`; `rax` is the syscall number)
 and combine it with the 32 bit displacement.
 
@@ -213,16 +236,16 @@ c5 - SIB Byte - source operand is rax*8 + disp32
 ???????? - disp32
 ```
 
-Armed with this knowalge, we can now attempt to find this instruction in the first few
-hundret bytes of the `do_syscall_64` function.
+Armed with this knowledge, we can now attempt to find this instruction in the first few
+hundred bytes of the `do_syscall_64` function.
 Then it's as simple as extracting the offset (`disp32`) and we can calculate the address
-of the syscall table remebering to sign extend the displacement.
+of the syscall table remembering to sign extend the displacement.
 
 This is by no means a perfect approach, since the compiler might generate
-a completly different code. However, it should be pretty easy to add
-more patterns by analizing the `do_syscall_64` assembly.
+a completely different code. However, it should be pretty easy to add
+more patterns by analyzing the `do_syscall_64` assembly.
 More advanced techniques are possible, such as dynamically instrumenting the syscall handler
-and analizing it's memory access, but that was beyond the scope of this project.
+and analyzing it's memory access, but that was beyond the scope of this project.
 
 When we finally get the address of the syscall table, we can create a copy of it,
 and check for any anomalies. Since we have a full copy, we can not only detect
@@ -262,12 +285,12 @@ and monitor it for any changes.
 
 # Development
 
-1. Clone this repo
+1. Clone this repo.
 2. Initialize and update the submodules with `git submoule init && git submodule update` (or pass the `--recurse-submodules` flag when cloning).
 3. Copy the `config/kernel.config` to the `kernel/` directory.
 4. Build the kernel with `make` (only needs to be done once).
 5. Build the modules and create a rootfs with `./build.sh`.
-6. Run the QEMU VM with `./run.sh`
+6. Run the QEMU VM with `./run.sh`.
 
 ## Open source licenses
 
