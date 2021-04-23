@@ -159,21 +159,21 @@ The procedure is actually written in assembly (in the `/arch/x86/entry/entry_64.
 
 ```asm
 entry_SYSCALL_64:
-  /* Prepare the stack */
+  ; Prepare the stack
   ...
-  /* Construct struct pt_regs on the stack */
+  ; Construct struct pt_regs on the stack
   ...
-  push  rcx          /* pt_regs->ip (CPU stored it here on syscall) */
-  push  rax          /* pt_regs->orig_ax */
+  push  rcx          ; pt_regs->ip (CPU stored it here on syscall)
+  push  rax          ; pt_regs->orig_ax
 
-  /* pushes and clears (using xor %r, %r) all registers except for rax, since it holds the syscall number */ 
+  ; pushes and clears (using xor %r, %r) all registers except for rax, since it holds the syscall number
   PUSH_AND_CLEAR_REGS rax=$-ENOSYS
 
-  /* IRQs are off. */
-  mov  rdi, rax            /* unsigned long nr */
-  mov  rsi, rsp            /* struct pt_regs *regs */
-  call  do_syscall_64      /* returns with IRQs disabled */
-  /* now rax has the return value of the handler */
+  ; IRQs are off,
+  mov  rdi, rax            ; unsigned long nr
+  mov  rsi, rsp            ; struct pt_regs *regs
+  call  do_syscall_64      ; returns with IRQs disabled
+  ; now rax has the return value of the handler
   ...
 ```
 
