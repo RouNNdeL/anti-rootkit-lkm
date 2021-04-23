@@ -1,5 +1,5 @@
 This is a simple anti-rootkit Linux Kernel Module written for a _Operating Systems Securiy_ course.
-It contains 7 (TODO: 8) different kernel integrity checks.
+It contains 7 different kernel integrity checks.
 It is only compatible with the `x86_64` architecture, but some non architecture specific checks can be used on a different architecture.
 
 <details open="open">
@@ -120,7 +120,7 @@ The Intel Software Developer Manual describes it's operation as such:
 > Description SYSCALL invokes an OS system-call handler at privilege level 0.
 > It does so by loading RIP from the IA32_LSTAR MSR (after saving the address of the instruction following SYSCALL into RCX).
 
-So, the CPU will enter ring 0 (the kernel mode), and than jump to the address specified by the model-specific register `LSTAR`.
+So, the CPU will enter ring 0 (the kernel mode), and then jump to the address specified by the model-specific register `LSTAR`.
 The kernel sets the value of the `MSR_LSTAR` in the `syscall_init` function to point to `entry_SYSCALL_64`.
 
 ```c
@@ -133,7 +133,7 @@ and detect any potential attempts to overwrite the address by periodically check
 
 If, however, we are loaded after a malicious module, and we suspect it has overwritten the register,
 we can still detect, and potentially recover it's value by using kallsyms. The `sprintf_symbol` function allows us to
-check the symbol name of the function pointed to by the `MSR_LSTAR`.
+check the symbol name of the function pointed to by the `MSR_LSTAR`, if it doesn't match it may have been overwritten.
 We could also check the alignment of the `entry_SYSCALL_64`, it should be paged aligned (the address ends in `0000`),
 but I've noticed that we can do even better. When building kernel `5.11` with the supplied config it is aligned
 to a 16 page boundary, meaning the address ends in `00000` (5 zeros, instead of 4).
@@ -141,9 +141,13 @@ to a 16 page boundary, meaning the address ends in `00000` (5 zeros, instead of 
 
 ## Syscall table
 
-Having protected the syscall handler entry via the `syscall` instruction (at least in long mode,
+Having protected the syscall handler entry via the `syscall` instruction (at least in the long mode,
 we address the compatibility mode in the [Interrupt Descriptor Table](#interrupt-descriptor-table) section)
 the next logical step is to protect the syscall table itself.
+
+A hypothetical rootkit, can very easily hook any syscall, without the need to patch the existing handlers.
+All it needs to do is replace an address of a specific syscall handler with an address of it's own function
+with the same signature inside the syscall table.
 
 In older kernel versions (prior to 4.17) it was possible to locate the syscall table by searching
 through the kernel address space and looking for references to the `sys_close` function (more precisely, it's address).
@@ -155,7 +159,7 @@ We have to get a bit clever to get access to the table. Let's follow what the CP
 
 We already know, when the `syscall` instruction gets executed, we jump to the `entry_SYSCALL_64`,
 and the address of the next instruction is stored in the `rcx` register.
-The procedure is actually written in assembly (in the `/arch/x86/entry/entry_64.S` file).
+This procedure is actually written in assembly (in the `/arch/x86/entry/entry_64.S` file).
 
 ```asm
 entry_SYSCALL_64:
@@ -169,7 +173,7 @@ entry_SYSCALL_64:
   ; pushes and clears (using xor %r, %r) all registers except for rax, since it holds the syscall number
   PUSH_AND_CLEAR_REGS rax=$-ENOSYS
 
-  ; IRQs are off,
+  ; IRQs are off
   mov  rdi, rax            ; unsigned long nr
   mov  rsi, rsp            ; struct pt_regs *regs
   call  do_syscall_64      ; returns with IRQs disabled
@@ -250,6 +254,13 @@ and analyzing it's memory access, but that was beyond the scope of this project.
 When we finally get the address of the syscall table, we can create a copy of it,
 and check for any anomalies. Since we have a full copy, we can not only detect
 any attempts to tamper with the table, but also recover it, if we notice anything out of place.
+
+That does require however that we are loaded into an clean kernel.
+If we suspect a potential rootkit has already been loaded into the kernel,
+and replaced the entires in the syscall table we can still attempt to detect it
+(but it's going to be very difficult to recover the table).
+We can check weather the syscall table entries are close to each other.
+If a few entries reside in a completely unrelated memory region we can suspect they have been hooked.
 
 ## Interrupt Descriptor Table
 
