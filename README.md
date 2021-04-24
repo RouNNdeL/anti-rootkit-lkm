@@ -22,6 +22,11 @@ TODO
 
 # Installation
 
+**WARNING**: This is not a stable module, it could cause a kernel panic at anytime, 
+and I would not recommend loading it on your main system. 
+
+**Use a virtual machine!**
+
 ## Kernel headers
 
 To build the module you will need the header files for your kernel.
@@ -127,7 +132,8 @@ The kernel sets the value of the `MSR_LSTAR` in the `syscall_init` function to p
 wrmsrl(MSR_LSTAR, (unsigned long)entry_SYSCALL_64);
 ```
 
-A malicious module might want to overwrite the register's value to intercept all system calls.
+A malicious module might want to overwrite the register's value to intercept all system calls (it
+is **very easy** to do so).
 If we are loaded into an unmodified kernel we can store the address of `entry_SYSCALL_64`
 and detect any potential attempts to overwrite the address by periodically checking the value of the register.
 
@@ -255,8 +261,8 @@ When we finally get the address of the syscall table, we can create a copy of it
 and check for any anomalies. Since we have a full copy, we can not only detect
 any attempts to tamper with the table, but also recover it, if we notice anything out of place.
 
-That does require however that we are loaded into an clean kernel.
-If we suspect a potential rootkit has already been loaded into the kernel,
+That does require, however, that we are loaded into an clean kernel.
+If we suspect a potential rootkit has already been loaded before us,
 and replaced the entires in the syscall table we can still attempt to detect it
 (but it's going to be very difficult to recover the table).
 We can check weather the syscall table entries are close to each other.
@@ -293,6 +299,31 @@ or even simpler, just use the function included from `asm/desc.h` - `void store_
 
 Once we have to address of the IDT, we can create a copy just like we did for the syscall table
 and monitor it for any changes.
+
+
+## Module List
+
+Most rootkit modules, don't only go on the offence, they also need to protect themselves from being
+found and unloaded. The most common way they achieve this is by removing themselves from the module list.
+This not only guarantees that the module cannot be seen by the user calling `lsmod`, but it
+also cannot be seen by other kernel structures, so the module cannot be unloaded at all.
+
+Let's try to detect that. The kernel uses a doubly linked list to store the list of modules.
+We can get access to that list using the `THIS_MODULE` macro, that returns the `struct module`
+structure that describes our module. It contains a `struct list_head list` entry, that's the module list.
+Granted, we are in the middle, or just before we are loaded, at the end of the list, but thanks
+to the structure of a doubly linked list, we can access other entries in that list.
+
+Now we have to assume, that again, we are loaded before any malicious modules.
+We can hook the `do_init_module` and `free_mdoule` functions using `ftrace`, the built-in kernel tracing and hooking engine.
+This allows us to independently keep track of the loaded modules and detect when a module disappears from
+the real list.
+
+We can assume the module is malicious when it removes itself from the list, and even forcefully unload it
+using the `free_module` function. It might however leave some kernel structures in a broken state, as 
+the proper way to remove the module would be to call the `delete_module` syscall. We could do that with
+a userspace helper, but this project does not implement that functionality (TODO?).
+
 
 # Development
 
