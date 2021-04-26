@@ -1,15 +1,9 @@
 #include <linux/rculist.h>
 #include <asm/fcntl.h>
+
 #include "module_list.h"
 #include "config.h"
 #include "utils.h"
-
-#ifdef PTREGS_SYSCALL_STUBS
-asmlinkage long (*real_delete_module)(struct pt_regs *regs);
-#else
-asmlinkage long (*real_delete_module)(const char __user *name_user,
-                                      unsigned int flags);
-#endif /* PTREGS_SYSCALL_STUBS */
 
 static LIST_HEAD(mod_list);
 static struct list_head *real_module_list;

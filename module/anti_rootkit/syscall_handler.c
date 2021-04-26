@@ -26,4 +26,5 @@ void syscall_handler_check(void)
 
 void syscall_handler_init(void) {
     syscall_handler = get_syscall_64_handler();
+    pr_info("syscall handler is @ %px", syscall_handler);
 }

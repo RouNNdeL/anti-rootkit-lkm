@@ -47,8 +47,9 @@ struct fun_protector {
     void *addr;
 };
 
-static inline int fprot_safe_cpy(const struct fun_protector *fprot, void *addr)
+static inline int fprot_safe_cpy(struct fun_protector *fprot, void *addr)
 {
+    fprot->addr = addr;
     if (addr)
         memcpy((void *)fprot->head, addr, FUN_PROTECT_SIZE);
 

@@ -16,25 +16,27 @@ void network_init(void)
                    (void *)lookup_name("tcp4_seq_show"));
     fprot_safe_cpy(&net_protectors.udp4_seq_show,
                    (void *)lookup_name("udp4_seq_show"));
-    fprot_safe_cpy(&net_protectors.ip_rcv,
-                   (void *)lookup_name("ip_rcv"));
+    fprot_safe_cpy(&net_protectors.ip_rcv, (void *)lookup_name("ip_rcv"));
 }
 
-static void network_recover(void) {
+static void network_recover(void)
+{
     wp_disable();
+
     fprot_recover(&net_protectors.tcp4_seq_show);
     fprot_recover(&net_protectors.udp4_seq_show);
     fprot_recover(&net_protectors.ip_rcv);
+
     wp_enable();
 }
 
 void network_check(void)
 {
-    if(!fprot_validate(&net_protectors.tcp4_seq_show))
+    if (fprot_validate(&net_protectors.tcp4_seq_show))
         pr_warn("'tcp4_seq_show' has been hooked");
-    if(!fprot_validate(&net_protectors.udp4_seq_show))
+    if (fprot_validate(&net_protectors.udp4_seq_show))
         pr_warn("'udp4_seq_show' has been hooked");
-    if(!fprot_validate(&net_protectors.ip_rcv))
+    if (fprot_validate(&net_protectors.ip_rcv))
         pr_warn("'ip_rcv' has been hooked");
 
 #if RECOVER_NETWORK
