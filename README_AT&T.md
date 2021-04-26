@@ -197,16 +197,16 @@ entry_SYSCALL_64:
   ...
   ; Construct struct pt_regs on the stack
   ...
-  push  rcx          ; pt_regs->ip (CPU stored it here on syscall)
-  push  rax          ; pt_regs->orig_ax
+  pushq  %rcx        ; pt_regs->ip (CPU stored it here on syscall)
+  pushq  %rax        ; pt_regs->orig_ax
 
   ; Pushes and clears (using xor %r, %r) all registers except for RAX, since it holds the syscall number
   PUSH_AND_CLEAR_REGS rax=$-ENOSYS
 
   ; IRQs are off
-  mov  rdi, rax            ; unsigned long nr
-  mov  rsi, rsp            ; struct pt_regs *regs
-  call  do_syscall_64      ; returns with IRQs disabled
+  movq  %rax, %rdi         ; unsigned long nr
+  movq  %rsp, %rsi         ; struct pt_regs *regs
+  callq  do_syscall_64     ; returns with IRQs disabled
   ; Now RAX has the return value of the handler
   ...
 ```
@@ -244,9 +244,10 @@ The next part is a bit tricky, since the `do_syscall_64` is written in C, so we 
 some heuristics, as we cannot be certain what the compiler will generate.
 This is how the jump is compiled with my `gcc`:
 
+
 ```asm
-mov rax, qword [rax*8 - 0x7e3ffde0]
-call sym.__x86_indirect_thunk_rax ; retpoline - basically jmp rax
+movq -0x7e3ffde0(, %rax, 8), %rax
+callq sym.__x86_indirect_thunk_rax
 ```
 
 We can now attempt to locate this part by pattern matching, looking for the `mov` instruction -
