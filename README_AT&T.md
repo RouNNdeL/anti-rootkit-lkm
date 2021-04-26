@@ -1,3 +1,17 @@
+**This is a special README for the AT&T syntax connoisseurs, all other readers are advised
+to read the normal README, unless they can read instructions like this without hesitation:**
+
+<details>
+<summary>AT&T syntax warning, viewer discretion is advised</summary>
+
+```asm
+movq -0x7e3ffde0(, %rax, 8), %rax
+```
+
+</details>
+
+# About
+
 This is a simple anti-rootkit Linux Kernel Module written for a _Operating Systems Securiy_ course.
 It contains 7 different kernel integrity checks.
 It is only compatible with the `x86_64` architecture, but some non architecture specific checks can be used on a different architecture.

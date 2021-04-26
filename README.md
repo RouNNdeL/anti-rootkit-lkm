@@ -1,3 +1,5 @@
+# About
+
 This is a simple anti-rootkit Linux Kernel Module written for a _Operating Systems Securiy_ course.
 It contains 7 different kernel integrity checks.
 It is only compatible with the `x86_64` architecture, but some non architecture specific checks can be used on a different architecture.
