@@ -21,19 +21,26 @@ static void print_fops(const struct file_operations *fops)
 
     PRINT_SYMBOL(buf, fops, read);
     PRINT_SYMBOL(buf, fops, read_iter);
+    PRINT_SYMBOL(buf, fops, write);
+    PRINT_SYMBOL(buf, fops, write_iter);
     PRINT_SYMBOL(buf, fops, iterate_shared);
     PRINT_SYMBOL(buf, fops, llseek);
     PRINT_SYMBOL(buf, fops, fsync);
 }
 
-static void copy_important_fops(struct important_fops *cpy,
-                                const struct file_operations *org)
+static void copy_important_fops(struct important_fops *cpy, const struct file_operations *org)
 {
     fprot_safe_cpy(&cpy->read, org->read);
     cpy->read.addr = org->read;
 
     fprot_safe_cpy(&cpy->read_iter, org->read_iter);
     cpy->read_iter.addr = org->read_iter;
+
+    fprot_safe_cpy(&cpy->write, org->write);
+    cpy->write.addr = org->write;
+
+    fprot_safe_cpy(&cpy->write_iter, org->write_iter);
+    cpy->write_iter.addr = org->write_iter;
 
     fprot_safe_cpy(&cpy->iterate_shared, org->iterate_shared);
     cpy->iterate_shared.addr = org->iterate_shared;
@@ -43,6 +50,7 @@ static void copy_important_fops(struct important_fops *cpy,
 
     fprot_safe_cpy(&cpy->fsync, org->fsync);
     cpy->fsync.addr = org->fsync;
+
 }
 
 static int validate_fops(const struct important_fops *cpy)
@@ -53,6 +61,10 @@ static int validate_fops(const struct important_fops *cpy)
         ret |= FOPS_OVERWRITE_READ;
     if (fprot_validate(&cpy->read_iter))
         ret |= FOPS_OVERWRITE_READ_ITER;
+    if (fprot_validate(&cpy->write))
+        ret |= FOPS_OVERWRITE_WRITE;
+    if (fprot_validate(&cpy->write_iter))
+        ret |= FOPS_OVERWRITE_WRITE_ITER;
     if (fprot_validate(&cpy->iterate_shared))
         ret |= FOPS_OVERWRITE_ITERATE_SHARED;
     if (fprot_validate(&cpy->llseek))
@@ -70,6 +82,8 @@ static void fops_recover(const struct important_fops *cpy)
 
     fprot_recover(&cpy->read);
     fprot_recover(&cpy->read_iter);
+    fprot_recover(&cpy->write);
+    fprot_recover(&cpy->write_iter);
     fprot_recover(&cpy->iterate_shared);
     fprot_recover(&cpy->llseek);
     fprot_recover(&cpy->fsync);
@@ -83,6 +97,10 @@ static void fops_print_overwrites(int overwrites)
         pr_warn("'read' file operations overwrite detected");
     if (overwrites & FOPS_OVERWRITE_READ_ITER)
         pr_warn("'read_iter' file operations overwrite detected");
+    if (overwrites & FOPS_OVERWRITE_WRITE)
+        pr_warn("'write' file operations overwrite detected");
+    if (overwrites & FOPS_OVERWRITE_WRITE_ITER)
+        pr_warn("'write_iter' file operations overwrite detected");
     if (overwrites & FOPS_OVERWRITE_ITERATE_SHARED)
         pr_warn("'iterate_shared' file operations overwrite detected");
     if (overwrites & FOPS_OVERWRITE_LLSEEK)
@@ -137,4 +155,6 @@ void fops_check_all(void)
 
     pr_info("checking fops: 'rootfs'");
     fops_check(&org_rootfs_fops);
+
 }
+

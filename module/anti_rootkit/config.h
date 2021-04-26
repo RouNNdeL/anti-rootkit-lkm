@@ -20,8 +20,10 @@
 #define RECOVER_IDT 1
 #define RECOVER_NETWORK 1
 
-#define UNLOAD_SUSPECT_MODULE 1
+/* Use with caution, can cause system instability */
+#define UNLOAD_SUSPECT_MODULE 0
 
+/* In seconds */
 #define CHECK_INTERVAL 60
 
 #endif

@@ -8,7 +8,7 @@ class Formatter:
     indent_count: int = 0
     indent: str
 
-    def __init__(self, indent = " " * 4) -> None:
+    def __init__(self, indent=" " * 4) -> None:
         self.indent = indent
 
     def add_line(self, line):
@@ -181,7 +181,7 @@ def gen_fops_init(paths: List[FopsPath]) -> str:
 
     for p in paths:
         fmt += f"fops = get_fop(\"{p.path}\");"
-        fmt += "if(!fops)"
+        fmt += "if (!fops)"
         fmt.indent_add()
         fmt += "return -ENXIO;"
         fmt.indent_sub()
@@ -230,6 +230,7 @@ def gen_fops_c(fops: List[str], paths: List[FopsPath]) -> str:
 
     return s
 
+
 def gen_fops_h(fops: List[str], paths: List[FopsPath]) -> str:
     fmt: Formatter = Formatter()
     fmt += "#ifndef _ANTI_ROOTKIT_FOPS"
@@ -239,7 +240,7 @@ def gen_fops_h(fops: List[str], paths: List[FopsPath]) -> str:
     fmt += "#include \"utils.h\""
     fmt += ""
 
-    for i ,f in enumerate(fops):
+    for i, f in enumerate(fops):
         fmt += f"#define FOPS_OVERWRITE_{f.upper()} (1 << {i})"
 
     fmt += ""
@@ -256,14 +257,15 @@ def gen_fops_h(fops: List[str], paths: List[FopsPath]) -> str:
     fmt += "int fops_init(void);"
     fmt += "void fops_check_all(void);"
     fmt += ""
-    
+
     fmt += "#endif"
 
     return fmt.s
 
 
 if __name__ == "__main__":
-    fops = ["read",  "read_iter", "iterate_shared", "llseek", "fsync"]
+    fops = ["read",  "read_iter", "write", "write_iter",
+            "iterate_shared", "llseek", "fsync"]
     paths = [FopsPath("/sys", "sysfs"),
              FopsPath("/proc", "procfs"),
              FopsPath("/", "rootfs")]
