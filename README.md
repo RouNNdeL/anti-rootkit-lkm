@@ -10,7 +10,7 @@ It is only compatible with the `x86_64` architecture, but some non architecture 
 3. [Available checks](#available-checks)
     1. [Pinned CR bits](#pinned-cr-bits)
     2. [MSR LSTAR](#msr-lstar)
-    3. [Syscall Table](#syscall-table)
+    3. [Syscall table](#syscall-table)
     4. [Interrupt Descriptor Table](#interrupt-descriptor-table)
     5. [Module list](#module-list)
     6. [File operations](#file-operations)
@@ -188,8 +188,10 @@ making this approach unviable. The syscall table is also not available through k
 We have to get a bit clever to get access to the table. Let's follow what the CPU does to call a specific syscall handler.
 
 We already know, when the `syscall` instruction gets executed, we jump to `entry_SYSCALL_64`,
-and the address of the next instruction is stored in the `rcx` register.
+and the address of the next instruction is stored in the RCX register.
 This procedure is actually written in assembly (in the `/arch/x86/entry/entry_64.S` file).
+
+Intel:
 
 ```asm
 entry_SYSCALL_64:
@@ -211,8 +213,30 @@ entry_SYSCALL_64:
   ...
 ```
 
+AT&T:
+
+```asm
+entry_SYSCALL_64:
+  ; Prepare the stack
+  ...
+  ; Construct struct pt_regs on the stack
+  ...
+  pushq  %rcx        ; pt_regs->ip (CPU stored it here on syscall)
+  pushq  %rax        ; pt_regs->orig_ax
+
+  ; Pushes and clears (using xor %r, %r) all registers except for RAX, since it holds the syscall number
+  PUSH_AND_CLEAR_REGS rax=$-ENOSYS
+
+  ; IRQs are off
+  movq  %rax, %rdi         ; unsigned long nr
+  movq  %rsp, %rsi         ; struct pt_regs *regs
+  callq  do_syscall_64     ; returns with IRQs disabled
+  ; Now RAX has the return value of the handler
+  ...
+```
+
 It  will first push the registers onto the stack (the `struct pt_regs` structure) and then call `do_syscall_64`
-with the first argument, which is stored in the `rdi` register, being the syscall number (originally stored in `rax`),
+with the first argument, which is stored in the RDI register, being the syscall number (originally stored in the RAX register),
 and the second argument being the `struct pt_regs` structure holding the other registers (`mov rsi, rsp`;
 remember that `struct pt_regs` is now on the stack).
 
@@ -244,16 +268,26 @@ The next part is a bit tricky, since the `do_syscall_64` is written in C, so we 
 some heuristics, as we cannot be certain what the compiler will generate.
 This is how the jump is compiled with my `gcc`:
 
+Intel:
+
 ```asm
 mov rax, qword [rax*8 - 0x7e3ffde0]
 call sym.__x86_indirect_thunk_rax ; retpoline - basically jmp rax
 ```
 
+AT&T:
+
+
+```asm
+movq -0x7e3ffde0(, %rax, 8), %rax
+callq sym.__x86_indirect_thunk_rax
+```
+
 We can now attempt to locate this part by pattern matching, looking for the `mov` instruction -
 specifically `MOV r64,r/m64`. Additionally the value of the ModR/M Byte has to be equal to `04`,
 meaning `mov rax, ?` and the _SIB Byte_ follows the _ModR/M Byte_ to describe the source operand.
-Moreover _SIB Byte_ has to be equal to `c5` since we are multiplying `rax` by 8
-(`sizeof(void *)`; `rax` is the syscall number) and combine it with the 32 bit displacement.
+Moreover _SIB Byte_ has to be equal to `c5` since we are multiplying RAX by 8
+(`sizeof(void *)`; RAX is the syscall number) and combine it with the 32 bit displacement.
 
 The format of the `mov` instruction is as follows.
 
@@ -322,7 +356,7 @@ Once we have to address of the IDT, we can create a copy just like we did for th
 and monitor it for any changes.
 
 
-## Module List
+## Module list
 
 Most rootkit modules, don't only go on the offence, they also need to protect themselves from being
 found and unloaded. The most common way they achieve this is by removing themselves from the module list.
