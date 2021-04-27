@@ -12,7 +12,7 @@ movq -0x7e3ffde0(, %rax, 8), %rax
 
 # About
 
-This is a simple anti-rootkit Linux Kernel Module written for a _Operating Systems Securiy_ course.
+This is a simple anti-rootkit Linux Kernel Module written for a _Operating Systems Security_ course.
 It contains 7 different kernel integrity checks.
 It is only compatible with the `x86_64` architecture, but some non architecture specific checks can be used on a different architecture.
 
@@ -130,7 +130,7 @@ Two related commits (`8dbec27a242cd3e2` and `873d50d58f67ef15`) implemented thes
 > With sensitive CR4 bits pinned now, it's possible that the WP bit for
 > CR0 might become a target as well.
 
-The POC exploit, motioned in the first commit, was able to call the `native_write_cr4` function after bypassing KASLR
+The POC exploit, mentioned in the first commit, was able to call the `native_write_cr4` function after bypassing KASLR
 and calculating the offset to the function. Then it cleared the SMEP and SMAP bits,
 which in turn allowed the payload to be executed with ring 0 privileges.
 
