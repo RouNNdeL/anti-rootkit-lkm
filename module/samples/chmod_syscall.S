@@ -7,8 +7,6 @@ path:
 
 section .text
 _start:
-	; 24 bytes on the stack
-	sub rsp, 0x18
 	mov rdi, path
 	mov rax, 90
 	mov rsi, 0x1a4
