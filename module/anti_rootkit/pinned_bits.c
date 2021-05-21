@@ -15,11 +15,12 @@ void pinned_bits_init(void)
 
 static inline void check_cr0(void)
 {
-    if (unlikely(!wp_set())) {
+    unsigned long cr0 = read_cr0();
+    if (unlikely(!(cr0 & X86_CR0_WP))) {
         pr_warn("cr0 WP bit cleared");
 #if RECOVER_PINNED_BITS
         pr_info("recovering cr0 WP bit");
-        wp_enable();
+        _write_cr0(cr0 | X86_CR0_WP);
 #endif /* RECOVER_PINNED_BITS */
     }
 }

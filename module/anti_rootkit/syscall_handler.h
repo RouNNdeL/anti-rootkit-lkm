@@ -12,7 +12,7 @@ static inline void *get_syscall_64_handler(void)
     return (void *)system_call_entry;
 }
 
-static inline void set_syscall_64_handler(void *val)
+static inline void set_syscall_64_handler(const void *val)
 {
     wrmsrl(MSR_LSTAR, (unsigned long)val);
 }

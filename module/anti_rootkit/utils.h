@@ -43,7 +43,7 @@ void print_table_overwrites(const char *prefix,
 
 #define FUN_PROTECT_SIZE 12
 struct fun_protector {
-    uint8_t head[FUN_PROTECT_SIZE];
+    unsigned char head[FUN_PROTECT_SIZE];
     void *addr;
 };
 

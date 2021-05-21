@@ -40,7 +40,6 @@ MODULE_VERSION("1.0.0");
 #define CHECK_IDT (1 << 5)
 #define CHECK_IMPORTANT_FUNCTIONS (1 << 6)
 
-static struct task_struct *interval_task;
 static struct kobject *check_kobject;
 static time64_t last_check_time;
 static unsigned int loaded_checks;
