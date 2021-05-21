@@ -137,11 +137,3 @@ void fh_remove_hooks(struct ftrace_hook *hooks, size_t count)
     for (i = 0; i < count; i++)
         fh_remove_hook(&hooks[i]);
 }
-
-/*
- * Tail call optimization can interfere with recursion detection based on
- * return address on the stack. Disable it to avoid machine hangups.
- */
-#if !USE_FENTRY_OFFSET
-#pragma GCC optimize("-fno-optimize-sibling-calls")
-#endif

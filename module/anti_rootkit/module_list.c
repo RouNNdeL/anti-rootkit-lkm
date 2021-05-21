@@ -89,11 +89,17 @@ void module_list_check(struct module *mod)
     }
 }
 
+
 void fh_free_module(struct module *mod)
 {
     unregister_module(mod);
 
     real_free_module(mod);
+
+    /*
+     * Tail call optimization can interfere with recursion detection based on
+     * return address on the stack. Disable it to avoid machine hangups.
+     */
     barrier();
 }
 
