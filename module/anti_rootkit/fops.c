@@ -10,10 +10,12 @@ static struct important_fops org_procfs_fops;
 static struct important_fops org_rootfs_fops;
 
 #define PRINT_SYMBOL(buf, fops, name)                                          \
-    if (fops->name) {                                                          \
-        sprint_symbol(buf, (unsigned long)fops->name);                         \
-        pr_info(#name " is %s@%px", buf, fops->name);                          \
-    }
+    do {                                                                       \
+        if (fops->name) {                                                      \
+            sprint_symbol(buf, (unsigned long)fops->name);                     \
+            pr_info(#name " is %s@%px", buf, fops->name);                      \
+        }                                                                      \
+    } while(0)
 
 static void print_fops(const struct file_operations *fops)
 {

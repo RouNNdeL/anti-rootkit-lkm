@@ -1,3 +1,5 @@
+#include "linux/compiler.h"
+#include "linux/percpu-refcount.h"
 #include <linux/rculist.h>
 #include <asm/fcntl.h>
 
@@ -61,12 +63,6 @@ static void unregister_module(struct module *mod)
     }
 }
 
-static void unload_module(struct module *mod)
-{
-    pr_info("unloading '%s' forcefully", mod->name);
-    real_free_module(mod);
-}
-
 void module_list_check(struct module *mod)
 {
     bool on_list;
@@ -74,9 +70,8 @@ void module_list_check(struct module *mod)
 
     on_list = false;
     list_for_each_entry (mod_iter, real_module_list, list) {
-        if (mod_iter == mod) {
+        if (mod_iter == mod)
             on_list = true;
-        }
     }
 
     if (!on_list) {
@@ -99,6 +94,7 @@ void fh_free_module(struct module *mod)
     unregister_module(mod);
 
     real_free_module(mod);
+    barrier();
 }
 
 int fh_do_init_module(struct module *mod)

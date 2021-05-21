@@ -4,7 +4,7 @@ SRCFILES = $(filter-out $(wildcard *.mod.c), $(wildcard *.c))
 OBJFILES = $(SRCFILES:.c=.o)
 
 obj-m += $(MOD_NAME).o
-$(MOD_NAME)-objs += fops.o ftrace_hooks.o globals.o idt.o main.o module_list.o network.o syscall_handler.o syscall_table.o utils.o pinned_bits.o
+$(MOD_NAME)-objs += fops.o ftrace_hooks.o globals.o idt.o main.o module_list.o important_functions.o syscall_handler.o syscall_table.o utils.o pinned_bits.o 
 
 all:
 	make -C $(KERNEL) M=$(PWD) modules
