@@ -164,7 +164,6 @@ def gen_fops_check() -> str:
     int overwrites = validate_fops(cpy);
     if (!overwrites)
         return;
-    pr_info("fops overwrites: %d", overwrites);
     fops_print_overwrites(overwrites);
 #if RECOVER_FOPS
     fops_recover(cpy);

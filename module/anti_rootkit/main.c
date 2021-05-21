@@ -1,4 +1,6 @@
+#include "linux/jiffies.h"
 #include "linux/pm.h"
+#include "linux/workqueue.h"
 #include <linux/kobject.h>
 #include <linux/sysfs.h>
 #include <linux/types.h>
@@ -43,6 +45,9 @@ static struct kobject *check_kobject;
 static time64_t last_check_time;
 static unsigned int loaded_checks;
 
+static void interval_fn(struct work_struct *work);
+DECLARE_DELAYED_WORK(interval_work, interval_fn);
+
 static void check_all(void)
 {
     last_check_time = ktime_get_real_seconds();
@@ -84,22 +89,13 @@ static void check_all(void)
 #endif /* DETECT_IMPORTANT_FUNCTIONS */
 }
 
-static int interval_thread_fn(void *args)
+static void interval_fn(struct work_struct *work)
 {
-    int i;
-    pr_info("starting the interval thread, will run every %ds", CHECK_INTERVAL);
 
-    while (!kthread_should_stop()) {
-        pr_info("running checks from interval");
-        check_all();
-        for (i = 0; i < CHECK_INTERVAL; ++i) {
-            ssleep(1);
-            if (kthread_should_stop())
-                break;
-        }
-    }
+    pr_info("running checks from interval");
+    check_all();
 
-    return 0;
+    schedule_delayed_work(&interval_work, __msecs_to_jiffies(CHECK_INTERVAL * 1000));
 }
 
 static int single_thread_fn(void *args)
@@ -244,8 +240,7 @@ static int __init anti_rootkit_init(void)
 
     check_all();
 
-    interval_task =
-            kthread_run(interval_thread_fn, NULL, "antirootkit_interval_run");
+    schedule_delayed_work(&interval_work, __msecs_to_jiffies(CHECK_INTERVAL * 1000));
 
     pr_info("init done");
 
@@ -257,7 +252,7 @@ static void __exit anti_rootkit_exit(void)
     pr_info("unloading anti-rootkit module");
     kobject_put(check_kobject);
     cleanup_checks();
-    kthread_stop(interval_task);
+    cancel_delayed_work_sync(&interval_work);
     pr_info("unload done");
 }
 
